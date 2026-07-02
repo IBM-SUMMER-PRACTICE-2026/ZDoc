@@ -44,46 +44,46 @@ Measured on an Apple Silicon laptop (`-O3`, single thread):
 - Validated against production headers: zlib.h, sqlite3.h, and libc++'s
   `__vector/vector.h` (179 symbols) parse cleanly with valid JSON.
 
-## Potential fix: flattened symbol tree (left-child/right-sibling)
+## Fit for a flattened symbol tree (left-child/right-sibling)
 
-Symbols are currently emitted as a **flat array in strict pre-order**:
-`parse_decl_scope` emits a class's `type` symbol first, then recurses into
-its body, so members always land immediately after their parent. The
-nesting information itself is discarded, though — a method inside a class
-and a free function are indistinguishable in the output.
+A flattened binary tree — left-child/right-sibling links stored as `int32`
+*indices* into the symbol array — is planned as the in-memory hierarchy for
+the renderer (implemented separately). This parser was written so that
+representation drops in without touching the scanner. Guarantees the
+current implementation provides:
 
-If the renderer ever needs an explicit hierarchy (e.g. showing `render`
-under `Widget` in the module tree), the right representation is a
-**flattened binary tree**: left-child/right-sibling encoding stored as
-`int32` *indices* into the existing array —
+- **Strict pre-order emission.** `parse_decl_scope` emits a class's `type`
+  symbol *before* recursing into its body (`parse_statement`, `'{'`
+  handler, `kw_record` branch), so every parent precedes its children and
+  children of one parent are contiguous. The links can therefore be
+  stamped during emission (track the current parent's index in the `P`
+  state, restore it when the recursion unwinds) or rebuilt afterwards in
+  one linear post-pass over `cp_symbols()` — no re-parse needed.
+- **One contiguous array, index-stable.** Symbols live in a single
+  realloc-grown array (`cp_result.syms`); an index assigned at emit time
+  stays valid even as the array grows, where pointers would dangle. Adding
+  two `int32` fields to `cp_symbol` costs 8 bytes/node and zero extra
+  allocations — heap-linked nodes would lose on both memory and traversal
+  locality.
+- **Source order is preserved.** Sibling order in the array is declaration
+  order, so `next_sibling` chains come out already sorted for rendering.
 
-```c
-typedef struct {
-    /* ... existing fields ... */
-    int32_t first_child;   /* -1 when leaf */
-    int32_t next_sibling;  /* -1 when last */
-} cp_symbol;
-```
+Notes for the implementer — cases where nesting is *not* emitted, so the
+parent index must simply be the enclosing scope's:
 
-Why this form and not a pointer-linked tree:
+- `namespace` and `extern "C"` blocks recurse into `parse_decl_scope` but
+  emit no symbol themselves (anonymous parent); their members attach to
+  the surrounding scope.
+- `enum` bodies and `typedef struct { ... } X;` bodies are fast-skipped
+  (`skip_body`), so they never produce children.
+- Anonymous `struct`/`class` (no tag name) recurses without emitting a
+  parent symbol; members surface in the enclosing scope.
+- Past the nesting guard (`st->depth >= 128`) record bodies are skipped,
+  not recursed — leaf by construction.
 
-- **8 bytes/node, zero extra allocations** — indices are stamped during the
-  existing emit path (keep the current parent's index in the parser state,
-  restore on recursion unwind; ~15 lines).
-- **Cache-friendly traversal** — walking indices over a contiguous array
-  beats chasing heap pointers, and indices survive `realloc` growth where
-  pointers would dangle.
-- **The parser is already fitted for it** — pre-order emission means every
-  parent precedes its children, so the links can even be reconstructed in
-  a single post-pass without touching the scanner.
-
-A heap-allocated linked list of symbol nodes would be strictly worse on
-both speed (pointer chasing, cache misses) and memory (2 pointers +
-allocator overhead per node) than the current array — don't do that.
-
-Note: `docs/ZDOC.md` only requires the *output* module tree (file node →
-its symbols, one level deep); no in-memory representation is mandated, so
-this is an optional enhancement for nested C++ rendering, not a spec gap.
+`docs/ZDOC.md` only mandates the *output* module tree (file node → its
+symbols); the flattened tree is the internal form the renderer will build
+it from, and enables nested C++ rendering (`render` under `Widget`).
 
 ## Build & run
 
