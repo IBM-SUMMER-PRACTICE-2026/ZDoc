@@ -117,6 +117,7 @@ Module java_parse(const char *path, const char *src, size_t len) {
                     trim(src + content_start, content_end - content_start, &raw_start, &raw_len);
                     sym.raw_comment = xstrndup(raw_start, raw_len);
                     sym.signature   = extract_signature(src, next, len);
+                    free(sym.name); 
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
                     module_push(&m, sym);
                 } else {
