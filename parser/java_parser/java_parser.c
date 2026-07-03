@@ -59,6 +59,31 @@ static void buffer_put(Buffer *b, char *s, size_t size) {
     b->data[b->len] = '\0';
 }
 
+//Append a character to the buffer. The buffers memory is expanded if necessary.
+static void buffer_putc(Buffer *b, char c) {
+    buffer_put(b, &c, 1);
+}
+
+
+
+/*
+    Skippers.
+    When the scanner counts the number of open and closed brackets to track how deep it is, a { inside a string 
+    or a comment must not be counted otherwise the depth will be wrong and the scanner will think it is still inside a method or constructor when it is not.
+    The moment the scanner sees a string, char or comment start it will call the appropriate skipper to skip over the string, char or comment and return to the scanner when it is done.
+    Each take the buffer and an index pointing at the start of the construct and returns the index right after it.
+*/
+
+
+static size_t skip_whitespace(const char *b, size_t i, size_t len) {
+    while(i < len && isspace((unsigned char)b[i])) i++;
+    return i;
+}
+
+static size_t skip_line_comment(const char *b, size_t i, size_t len) {
+    while(i < len && b[i] != '\n') i++;
+    return i;
+}
 
 
 void module_free(Module *m) {
