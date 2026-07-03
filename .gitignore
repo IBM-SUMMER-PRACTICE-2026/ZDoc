@@ -1,0 +1,25 @@
+# Build artifacts
+*.o
+*.obj
+*.a
+*.out
+*.exe
+
+# Per-component executables (zdoc-<module>). Each component also carries its
+# own .gitignore; these are backstops so a stray build never gets committed.
+zdoc-*-parser
+zdoc-doc-extractor
+zdoc-bob-client
+zdoc-*-renderer
+zdoc-cli
+
+# Generated documentation output (spec default --out-dir is ./zdoc-out)
+zdoc-out/
+
+# Local, non-example configuration
+zdoc.yaml
+zdoc.json
+
+# Editor / OS cruft
+.DS_Store
+*.swp

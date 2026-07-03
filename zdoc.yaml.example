@@ -1,0 +1,26 @@
+# ZDoc configuration — example.
+#
+# Copy to `zdoc.yaml` (or `zdoc.json`) in your working directory and edit.
+# Command-line options always override values set here. See docs/ZDOC.md ->
+# "Configuration File" for the full reference.
+
+title: "My Project Documentation"
+mode: offline                  # offline | ai
+output_format: html            # md | html
+out_dir: ./docs
+recursive: true
+
+# Restrict processing to these languages (omit to process all supported).
+languages:
+  - plx
+  - c
+  - assembler
+
+# Skip files matching any of these globs.
+exclude:
+  - "**/*.test.c"
+  - "**/test/**"
+
+# AI Assisted mode (mode: ai) — Bob CLI integration.
+bob_cli: bob
+bob_args: "--session default"
