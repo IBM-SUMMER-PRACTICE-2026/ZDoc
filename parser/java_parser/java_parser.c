@@ -1,25 +1,30 @@
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "java_parser.h"
 #include "util.h"
 #include "doc_comment.h"
 
+// Free the memory allocated for a symbol and its contents
+static void symbol_free(Symbol *y) {
+    free(y->name);
+    free(y->signature);
+    free(y->raw_comment);
+    free(y->brief);
+    free(y->returns);
+    free(y->diagram);
+    free(y->notes);
+    for(size_t k = 0; k < y->param_count; k++) {
+        free(y->params[k].name);
+        free(y->params[k].description);
+    }
+    free(y->params);
+}
+
 void module_free(Module *m) {
     for(size_t s = 0; s < m->count; s++) {
-        Symbol *y = &m->symbols[s];
-        free(y->name);
-        free(y->signature);
-        free(y->raw_comment);
-        free(y->brief);
-        free(y->returns);
-        free(y->diagram);
-        free(y->notes);
-        for(size_t k = 0; k < y->param_count; k++) {
-            free(y->params[k].name);
-            free(y->params[k].description);
-        }
-        free(y->params);
+        symbol_free(&m->symbols[s]);
     }
 
     free(m->symbols);
@@ -29,7 +34,7 @@ void module_free(Module *m) {
     m->filename = NULL;
 }
 
-//Append a symbol to the module's symbol array. The array's memory is expanded if necessary.
+// Append a symbol to the module's symbol array. The array's memory is expanded if necessary.
 static void module_push(Module *m, Symbol sym) {
     if(m->count == m->cap) {
         m->cap = m->cap ? m->cap * 2 : 8;
@@ -38,8 +43,8 @@ static void module_push(Module *m, Symbol sym) {
     m->symbols[m->count++] = sym;
 }
 
-//Take the declaration text right after a doc comment, up to (not including) the first '{' or ';',
-//and collapse all whitespace runs to single spaces. Returns NULL if there was nothing there.
+// Take the declaration text right after a doc comment, up to (not including) the first '{' or ';',
+// and collapse all whitespace runs to single spaces. Returns NULL if there was nothing there.
 static char *extract_signature(const char *src, size_t start, size_t len) {
     Buffer b = {0};
     int pending_space = 0;
@@ -51,7 +56,7 @@ static char *extract_signature(const char *src, size_t start, size_t len) {
         } else {
             if(pending_space) buffer_put(&b, " ", 1);
             pending_space = 0;
-            buffer_put(&b, (char *)&src[i], 1);
+            buffer_put(&b, (char *)(src + i), 1);  // cast needed until buffer_put takes const char *
         }
         i++;
     }
@@ -60,32 +65,63 @@ static char *extract_signature(const char *src, size_t start, size_t len) {
     return b.data;
 }
 
+// Extract the method or constructor name from the signature. Returns NULL if it can't be found.
+static char *extract_name(const char *sig) {
+    if(!sig) return NULL;
+    const char *p = strchr(sig, '(');
+    if(!p) return NULL;
+    while(p > sig && isspace((unsigned char)p[-1])) p--;
+    const char *end = p;
+    while(p > sig && (isalnum((unsigned char)p[-1]) || p[-1] == '_')) p--;
+    if(p == end) return NULL;
+    return xstrndup(p, (size_t)(end - p));
+}
+
 Module java_parse(const char *path, const char *src, size_t len) {
     Module m = {0};
     m.filename = xstrndup(path, strlen(path));
 
     size_t i = 0;
     while(i < len) {
+        // Skip over string literals, character literals, and comments to find doc comments
+        if(src[i] == '"' || src[i] == '\'') {
+            char delim = src[i++];
+            while(i < len && src[i] != delim) {
+                if(src[i] == '\\') i++;  // skip escaped character
+                i++;
+            }
+            if(i < len) i++;  // skip closing delimiter
+            continue;
+        }
+
         if(src[i] == '/' && i + 1 < len && src[i + 1] == '/') {
             i = skip_line_comment(src, i, len);
             continue;
         }
 
         if(src[i] == '/' && i + 1 < len && src[i + 1] == '*') {
-            size_t content_start = i + 2;
-            size_t end = content_start;
+            // Find the closing */ regardless of comment type so we always advance past it
+            size_t scan_start = i + 2;
+            size_t end = scan_start;
             while(end < len && !(src[end] == '*' && end + 1 < len && src[end + 1] == '/')) end++;
             size_t content_end = end < len ? end : len;
             size_t next = end < len ? end + 2 : len;
 
-            Symbol sym = {0};
-            if(parse_doc_comment(src + content_start, content_end - content_start, &sym)) {
-                const char *raw_start;
-                size_t raw_len;
-                trim(src + content_start, content_end - content_start, &raw_start, &raw_len);
-                sym.raw_comment = xstrndup(raw_start, raw_len);
-                sym.signature = extract_signature(src, next, len);
-                module_push(&m, sym);
+            // If it's a doc comment, parse it and extract the signature and name
+            if(scan_start < len && src[scan_start] == '*') {
+                size_t content_start = scan_start + 1;  // start after /**
+                Symbol sym = {0};
+                if(parse_doc_comment(src + content_start, content_end - content_start, &sym)) {
+                    const char *raw_start;
+                    size_t raw_len;
+                    trim(src + content_start, content_end - content_start, &raw_start, &raw_len);
+                    sym.raw_comment = xstrndup(raw_start, raw_len);
+                    sym.signature   = extract_signature(src, next, len);
+                    sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
+                    module_push(&m, sym);
+                } else {
+                    symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
+                }
             }
 
             i = next;
