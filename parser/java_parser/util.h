@@ -52,8 +52,7 @@ typedef struct {
 //Append a string to the buffer. The buffers memory is expanded if necessary.
 static inline void buffer_put(Buffer *b, char *s, size_t size) {
     if(b->len + size >= b->cap) {
-        while(b->len + size >= b->cap)
-            b->cap = b->cap ? b->cap * 2 : 64;
+        while(b->len + size >= b->cap) b->cap = b->cap ? b->cap * 2 : 64;
         b->data = xrealloc(b->data, b->cap);
     }
     memcpy(b->data + b->len, s, size);
