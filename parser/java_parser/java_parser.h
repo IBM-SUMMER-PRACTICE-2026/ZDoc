@@ -13,7 +13,7 @@
 // One parameter of a method 
 typedef struct {
     char *name;  // the parameter name
-    char *descrtiption; // text from @param, NULL if undocumented 
+    char *description; // text from @param, NULL if undocumented 
 } Param;
 
 // One method or constructor 
@@ -24,6 +24,7 @@ typedef struct {
     char  *brief; // short summary from the comment
     char  *returns; // text from @return
     char  *diagram; // AI mode diagram
+    char  *notes; //text from @throws general notes etc.
     Param *params; // the parameters
     size_t param_count; // number of the parameters 
 } Symbol;
