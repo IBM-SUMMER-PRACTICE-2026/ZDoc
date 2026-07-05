@@ -4,8 +4,12 @@
 #include <string.h>
 #include <stdio.h>
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
+#define FS_WALK_PATH_BUF 4096
+
+#ifdef _WIN32
+#define FS_WALK_SEP "\\"
+#else
+#define FS_WALK_SEP "/"
 #endif
 
 /* ============================================================
@@ -26,12 +30,28 @@ typedef struct {
 } fs_dir_t;
 
 static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
-    char search_path[MAX_PATH];
-    snprintf(search_path, sizeof(search_path), "%s\\*", disk_path);
+    char search_path[32768 + 8];
+    int n = snprintf(search_path, sizeof(search_path), "%s\\*", disk_path);
+    if (n < 0 || (size_t)n >= sizeof(search_path)) return -1;
 
     out->handle = FindFirstFileA(search_path, &out->find_data);
     if (out->handle == INVALID_HANDLE_VALUE) return -1;
     out->first_call = 1;
+    return 0;
+}
+
+static int win32_root_prefixed(const char* root_disk_path, char* out, size_t out_size) {
+    char full_path[32768];
+    DWORD full_len = GetFullPathNameA(root_disk_path, sizeof(full_path), full_path, NULL);
+    if (full_len == 0 || full_len >= sizeof(full_path)) return -1;
+
+    int n;
+    if (strncmp(full_path, "\\\\?\\", 4) == 0) {
+        n = snprintf(out, out_size, "%s", full_path);
+    } else {
+        n = snprintf(out, out_size, "\\\\?\\%s", full_path);
+    }
+    if (n < 0 || (size_t)n >= out_size) return -1;
     return 0;
 }
 
@@ -64,7 +84,7 @@ static void fs_dir_close(fs_dir_t* dir) {
 
 typedef struct {
     DIR* handle;
-    char base_path[PATH_MAX];
+    char base_path[FS_WALK_PATH_BUF];
 } fs_dir_t;
 
 static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
@@ -83,7 +103,7 @@ static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int*
 
         snprintf(name_out, name_out_size, "%s", e->d_name);
 
-        char full[PATH_MAX];
+        char full[FS_WALK_PATH_BUF];
         int n = snprintf(full, sizeof(full), "%s/%s", dir->base_path, e->d_name);
         if (n < 0 || (size_t)n >= sizeof(full)) return -1;
 
@@ -131,8 +151,8 @@ static int walk_dir(const char* disk_path, int current_dir_index,
     int result;
 
     while ((result = fs_dir_next(&dir, name, sizeof(name), &is_directory)) == 1) {
-        char child_disk_path[PATH_MAX];
-        int n = snprintf(child_disk_path, sizeof(child_disk_path), "%s/%s", disk_path, name);
+        char child_disk_path[FS_WALK_PATH_BUF];
+        int n = snprintf(child_disk_path, sizeof(child_disk_path), "%s" FS_WALK_SEP "%s", disk_path, name);
         if (n < 0 || (size_t)n >= sizeof(child_disk_path)) { fs_dir_close(&dir); return -1; }
 
         if (is_directory) {
@@ -177,5 +197,11 @@ int fs_walk(const char* root_disk_path,
     int root_index = modtree_intern_dir(dirs, root_name, -1);
     if (root_index < 0) return -1;
 
+#ifdef _WIN32
+    char prefixed_root[FS_WALK_PATH_BUF];
+    if (win32_root_prefixed(root_disk_path, prefixed_root, sizeof(prefixed_root)) != 0) return -1;
+    return walk_dir(prefixed_root, root_index, dirs, files, extensions, extension_count);
+#else
     return walk_dir(root_disk_path, root_index, dirs, files, extensions, extension_count);
+#endif
 }

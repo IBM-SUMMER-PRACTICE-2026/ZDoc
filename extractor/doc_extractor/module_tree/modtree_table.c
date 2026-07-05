@@ -4,9 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#ifndef PATH_MAX 
-#define PATH_MAX 4096
-#endif
+#define MODTREE_PATH_BUF 4096
 
 static char *modtree_strdup(const char *src) {
     size_t len = strlen(src) + 1;
@@ -93,7 +91,7 @@ static int build_dir_path(const modtree_dir_table_t* t, int dir_index, char* buf
         return 0;
     }
  
-    char parent_buf[PATH_MAX];
+    char parent_buf[MODTREE_PATH_BUF];
     int parent_len = build_dir_path(t, t->dirs[dir_index].parent_index, parent_buf, sizeof(parent_buf));
     if (parent_len < 0) return -1;
  
@@ -115,7 +113,7 @@ int modtree_dir_path(const modtree_dir_table_t* t, int dir_index, char* out, siz
 
 int modtree_file_path(const modtree_dir_table_t* dirs, const modtree_file_table_t* files,
                        int file_index, char* out, size_t out_size) {
-    char dir_buf[PATH_MAX];
+    char dir_buf[MODTREE_PATH_BUF];
     int parent_dir_index = files->files[file_index].parent_dir_index;
  
     int dir_len = build_dir_path(dirs, parent_dir_index, dir_buf, sizeof(dir_buf));
