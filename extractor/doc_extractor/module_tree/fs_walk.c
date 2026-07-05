@@ -1,0 +1,181 @@
+#include "fs_walk.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+/* ============================================================
+ * Platform-specific directory iteration primitives.
+ * Everything below this block (matches_extension, walk_dir,
+ * fs_walk) is identical for every platform and contains no
+ * #ifdef at all.
+ * ============================================================ */
+
+#ifdef _WIN32
+
+#include <windows.h>
+
+typedef struct {
+    HANDLE handle;
+    WIN32_FIND_DATAA find_data;
+    int first_call;
+} fs_dir_t;
+
+static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
+    char search_path[MAX_PATH];
+    snprintf(search_path, sizeof(search_path), "%s\\*", disk_path);
+
+    out->handle = FindFirstFileA(search_path, &out->find_data);
+    if (out->handle == INVALID_HANDLE_VALUE) return -1;
+    out->first_call = 1;
+    return 0;
+}
+
+/* Returns 1 with name/is_directory filled in, 0 when done. */
+static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int* is_directory) {
+    for (;;) {
+        if (!dir->first_call) {
+            if (!FindNextFileA(dir->handle, &dir->find_data)) return 0;
+        }
+        dir->first_call = 0;
+
+        if (strcmp(dir->find_data.cFileName, ".") == 0 ||
+            strcmp(dir->find_data.cFileName, "..") == 0)
+            continue;
+
+        snprintf(name_out, name_out_size, "%s", dir->find_data.cFileName);
+        *is_directory = (dir->find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        return 1;
+    }
+}
+
+static void fs_dir_close(fs_dir_t* dir) {
+    FindClose(dir->handle);
+}
+
+#else /* POSIX: Linux, macOS, BSD */
+
+#include <dirent.h>
+#include <sys/stat.h>
+
+typedef struct {
+    DIR* handle;
+    char base_path[PATH_MAX];
+} fs_dir_t;
+
+static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
+    out->handle = opendir(disk_path);
+    if (!out->handle) return -1;
+    snprintf(out->base_path, sizeof(out->base_path), "%s", disk_path);
+    return 0;
+}
+
+/* Returns 1 with name/is_directory filled in, 0 when done, -1 on error. */
+static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int* is_directory) {
+    struct dirent* e;
+    while ((e = readdir(dir->handle)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+            continue;
+
+        snprintf(name_out, name_out_size, "%s", e->d_name);
+
+        char full[PATH_MAX];
+        int n = snprintf(full, sizeof(full), "%s/%s", dir->base_path, e->d_name);
+        if (n < 0 || (size_t)n >= sizeof(full)) return -1;
+
+        struct stat st;
+        if (stat(full, &st) != 0) return -1;
+
+        *is_directory = S_ISDIR(st.st_mode);
+        return 1;
+    }
+    return 0;
+}
+
+static void fs_dir_close(fs_dir_t* dir) {
+    closedir(dir->handle);
+}
+
+#endif
+
+/* ============================================================
+ * Shared logic — identical on every platform.
+ * ============================================================ */
+
+/* Returns 1 if name's extension matches one of extensions, 0 otherwise.
+ * If extension_count is 0, every file matches (no filtering). */
+static int matches_extension(const char* name, const char** extensions, size_t extension_count) {
+    if (extension_count == 0) return 1;
+
+    size_t name_len = strlen(name);
+    for (size_t i = 0; i < extension_count; i++) {
+        size_t ext_len = strlen(extensions[i]);
+        if (name_len < ext_len) continue;
+        if (strcmp(name + (name_len - ext_len), extensions[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+static int walk_dir(const char* disk_path, int current_dir_index,
+                     modtree_dir_table_t* dirs, modtree_file_table_t* files,
+                     const char** extensions, size_t extension_count) {
+    fs_dir_t dir;
+    if (fs_dir_open(disk_path, &dir) != 0) return -1;
+
+    char name[256];
+    int is_directory;
+    int result;
+
+    while ((result = fs_dir_next(&dir, name, sizeof(name), &is_directory)) == 1) {
+        char child_disk_path[PATH_MAX];
+        int n = snprintf(child_disk_path, sizeof(child_disk_path), "%s/%s", disk_path, name);
+        if (n < 0 || (size_t)n >= sizeof(child_disk_path)) { fs_dir_close(&dir); return -1; }
+
+        if (is_directory) {
+            int new_index = modtree_intern_dir(dirs, name, current_dir_index);
+            if (new_index < 0) { fs_dir_close(&dir); return -1; }
+
+            if (walk_dir(child_disk_path, new_index, dirs, files, extensions, extension_count) != 0) {
+                fs_dir_close(&dir);
+                return -1;
+            }
+        } else if (matches_extension(name, extensions, extension_count)) {
+            if (modtree_intern_file(files, name, current_dir_index) < 0) {
+                fs_dir_close(&dir);
+                return -1;
+            }
+        }
+    }
+
+    fs_dir_close(&dir);
+    return (result == -1) ? -1 : 0;
+}
+
+/* Extracts the last path component of disk_path, e.g.
+ * "/tmp/myproject" -> "myproject", "C:\\src\\myproject" -> "myproject".
+ * Falls back to the whole string if no separator is found. */
+static const char* last_path_component(const char* disk_path) {
+    const char* slash = strrchr(disk_path, '/');
+    const char* backslash = strrchr(disk_path, '\\');
+    const char* last = disk_path;
+    if (slash && slash + 1 > last) last = slash + 1;
+    if (backslash && backslash + 1 > last) last = backslash + 1;
+    return last;
+}
+
+int fs_walk(const char* root_disk_path,
+            modtree_dir_table_t* dirs,
+            modtree_file_table_t* files,
+            const char** extensions,
+            size_t extension_count) {
+    const char* root_name = last_path_component(root_disk_path);
+
+    int root_index = modtree_intern_dir(dirs, root_name, -1);
+    if (root_index < 0) return -1;
+
+    return walk_dir(root_disk_path, root_index, dirs, files, extensions, extension_count);
+}

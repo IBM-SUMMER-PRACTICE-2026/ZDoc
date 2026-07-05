@@ -65,6 +65,59 @@ Declared in [`modtree_tables.h`](modtree_tables.h), implemented in
   `modtree_dir_path(dirs, dir_index, out, out_size)` and
   `modtree_file_path(dirs, files, file_index, out, out_size)`; return `0` on
   success, `-1` if `out` was too small.
+- **Filesystem walk** —
+  `fs_walk(root_disk_path, dirs, files, extensions, extension_count)` recursively
+  walks a real directory on disk, seeding the root then interning every
+  subdirectory and every file whose extension matches one of `extensions` (each
+  including the leading dot, e.g. `".c"`). Pass `extension_count == 0` to match
+  every file. Returns `0` on success, `-1` if the root could not be opened or an
+  allocation failed. Declared in [`fs_walk.h`](fs_walk.h), implemented in
+  [`fs_walk.c`](fs_walk.c). The POSIX (`dirent`/`stat`) and Windows
+  (`FindFirstFileA`) backends are isolated behind one internal interface; the
+  shared walk logic contains no `#ifdef`.
+
+---
+
+## Building & running the demo
+
+[`fs_walk_demo.c`](fs_walk_demo.c) is a small driver: it walks a folder, prints
+both tables, then prints the reconstructed path for every file. Compile the
+demo, the walker, and the table implementation together (no extra libraries are
+needed — only libc):
+
+```sh
+cd extractor/doc_extractor/module_tree
+cc -Wall -Wextra -std=c11 fs_walk_demo.c fs_walk.c modtree_table.c -o fs_walk_demo
+```
+
+Run it on any folder, optionally filtering by extension:
+
+```sh
+./fs_walk_demo <folder> [ext1 ext2 ...]   # no extensions -> matches every file
+./fs_walk_demo . .c .h                     # this directory, C sources only
+```
+
+Example against a real C project:
+
+```sh
+./fs_walk_demo ~/Desktop/Quicx .c .h
+```
+
+```
+...
+reconstructed paths:
+  Quicx/pmad/src/PMAD.c
+  Quicx/quicx/src/server.c
+  Quicx/quicx/include/queue.h
+  ...
+
+238 directories, 35 files
+```
+
+> **Note:** the walk currently descends into every directory, including `.git`
+> (its `objects/` alone accounts for most of the 238 dirs above) and macOS
+> `.dSYM` bundles. No source files matched inside them here, but skipping
+> dot-directories and build-artifact bundles is a likely future refinement.
 
 ---
 
@@ -74,6 +127,9 @@ Declared in [`modtree_tables.h`](modtree_tables.h), implemented in
 |------------------------------------------|--------------------------------------------|
 | [`modtree_tables.h`](modtree_tables.h)   | Table types and public API                 |
 | [`modtree_table.c`](modtree_table.c)     | Table lifecycle, interning, path building  |
+| [`fs_walk.h`](fs_walk.h)                  | Filesystem walk API                        |
+| [`fs_walk.c`](fs_walk.c)                  | Recursive walk (POSIX + Windows backends)  |
+| [`fs_walk_demo.c`](fs_walk_demo.c)       | CLI demo: walk a folder, print the tree    |
 | [`test.c`](test.c)                       | Self-checks for the tables and path output |
 | `ZDoc_modtree_diagram.png`               | The diagram above                          |
 
