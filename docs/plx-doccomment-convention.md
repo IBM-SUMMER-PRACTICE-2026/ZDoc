@@ -55,6 +55,60 @@ still possibly tagged with `@TAG`:
 Both lines belong to the `input` field. Concatenate their content (trimmed) with
 a space or newline, in order.
 
+## Input Field Formats
+
+The content of the `input` field itself follows one of three shapes. The parser
+should detect them in this order:
+
+### 1. Name list with `Where <name> is:` description blocks
+
+The label line carries a **comma-separated list of parameter names**. Each
+parameter's description follows in its own `Where <name> is:` block, with the
+description items enumerated `1)`, `2)`, ...:
+
+```
+/*  Input: ID, Name, Year                                       @L0A*/
+/*                                                              @L0A*/
+/*         Where ID is:                                         @L0A*/
+/*                                                              @L0A*/
+/*           1) Fixed(31) number                                @L0A*/
+/*                                                              @L0A*/
+/*         Where Name is:                                       @L0A*/
+/*                                                              @L0A*/
+/*           1) A character array with maximum length of 30     @L0A*/
+```
+
+Rules:
+
+- The presence of any `Where <name> is:` line selects this format.
+- `Where` and the parameter names are matched **case-insensitively** against
+  the declared name list.
+- The enumeration markers (`1)`, `2)`, ...) are presentation only — **strip**
+  them. Multiple items belonging to one parameter are joined with `"; "`;
+  a wrapped item continues on the next line and is joined with a space.
+- A `Where` block naming a parameter that is not in the declared list should be
+  reported as a **warning**, but its content kept (added as an extra parameter).
+- A declared name with no `Where` block is a parameter with an empty
+  description.
+
+### 2. `name - description` rows
+
+Each line is one parameter; name and description are separated by ` - `:
+
+```
+/* Input   : Student ID - Fixed(31)                             @L0A*/
+/*           Array of 5 grades - Fixed(31)                      @L0A*/
+```
+
+This format applies only when **every** content line contains the ` - `
+separator.
+
+### 3. `None` / free text
+
+`Input: None` (case-insensitive) means the procedure takes **no parameters**.
+Any other content that matches neither shape above is kept verbatim as a single
+unstructured entry.
+
 ## Blank / Padding-Only Lines
 
 A line may be pure padding with no content and no label:
