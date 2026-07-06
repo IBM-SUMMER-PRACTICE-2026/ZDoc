@@ -1,16 +1,19 @@
+CC     ?= cc
+CFLAGS ?= -Wall -Wextra -std=c11
+
 all: zdoc-java-parser
 
 main.o: main.c java_parser.h
-	gcc -Wall -Wextra -std=c11 -c main.c -o main.o
+	$(CC) $(CFLAGS) -c main.c -o main.o
 
 java_parser.o: java_parser.c java_parser.h util.h doc_comment.h
-	gcc -Wall -Wextra -std=c11 -c java_parser.c -o java_parser.o
+	$(CC) $(CFLAGS) -c java_parser.c -o java_parser.o
 
 doc_comment.o: doc_comment.c doc_comment.h util.h java_parser.h
-	gcc -Wall -Wextra -std=c11 -c doc_comment.c -o doc_comment.o
+	$(CC) $(CFLAGS) -c doc_comment.c -o doc_comment.o
 
 zdoc-java-parser: main.o java_parser.o doc_comment.o
-	gcc main.o java_parser.o doc_comment.o -o zdoc-java-parser
+	$(CC) $(CFLAGS) main.o java_parser.o doc_comment.o -o zdoc-java-parser
 
 clean:
 	rm -f zdoc-java-parser *.o
