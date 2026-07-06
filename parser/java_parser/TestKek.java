@@ -29,6 +29,7 @@ public class TestKek {
     * @throws IllegalArgumentException if path is null or empty
     * @throws java.io.IOException if the file cannot be read
     *********************************************************************/
+    @SuppressWarnings("unchecked")
     boolean loadKekData(String path) throws java.io.IOException {
         return true;
     }

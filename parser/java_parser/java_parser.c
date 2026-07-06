@@ -43,6 +43,33 @@ static void module_push(Module *m, Symbol sym) {
     m->symbols[m->count++] = sym;
 }
 
+// Skip any annotations (e.g. @Override, @SuppressWarnings("unchecked"), stacked or with
+// nested-paren arguments) between a doc comment and the declaration it documents.
+// Returns the index of the first non-whitespace, non-annotation character.
+static size_t skip_annotations(const char *src, size_t start, size_t len) {
+    size_t i = start;
+    for(;;) {
+        size_t after_ws = skip_whitespace(src, i, len);
+        if(after_ws >= len || src[after_ws] != '@') return i;
+
+        size_t j = after_ws + 1;
+        while(j < len && (isalnum((unsigned char)src[j]) || src[j] == '_' || src[j] == '.')) j++;
+
+        size_t after_name = skip_whitespace(src, j, len);
+        if(after_name < len && src[after_name] == '(') {
+            int depth = 0;
+            j = after_name;
+            do {
+                if(src[j] == '(') depth++;
+                else if(src[j] == ')') depth--;
+                j++;
+            } while(j < len && depth > 0);
+        }
+
+        i = j;
+    }
+}
+
 // Take the declaration text right after a doc comment, up to (not including) the first '{' or ';',
 // and collapse all whitespace runs to single spaces. Returns NULL if there was nothing there.
 static char *extract_signature(const char *src, size_t start, size_t len) {
@@ -116,8 +143,9 @@ Module java_parse(const char *path, const char *src, size_t len) {
                     size_t raw_len;
                     trim(src + content_start, content_end - content_start, &raw_start, &raw_len);
                     sym.raw_comment = xstrndup(raw_start, raw_len);
-                    sym.signature   = extract_signature(src, next, len);
-                    free(sym.name); 
+                    size_t sig_start = skip_annotations(src, next, len);  // skip annotations so they aren't mistaken for the signature
+                    sym.signature   = extract_signature(src, sig_start, len);
+                    free(sym.name);
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
                     module_push(&m, sym);
                 } else {
