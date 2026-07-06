@@ -27,15 +27,14 @@ static int has_known_extension(const char *path)
 
 int main(int argc, char **argv)
 {
-    int i, rc = 0;
+    int rc = 0;
 
     if (argc < 2) {
-        fprintf(stderr, "usage: %s <file.plx|file.plxmac> [more files...]\n",
-                argv[0]);
+        fprintf(stderr, "usage: %s <file.plx|file.plxmac> [more files...]\n", argv[0]);
         return 2;
     }
 
-    for (i = 1; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         Module *mod;
 
         if (!has_known_extension(argv[i])) {
