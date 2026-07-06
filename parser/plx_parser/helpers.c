@@ -154,7 +154,7 @@ void sb_join(StrBuf *b, const char *s)
 
 char *sb_steal(StrBuf *b)
 {
-    char *s = b->data ? b->data : xstrdup("");
+    char *s = b->data ? xrealloc(b->data, b->len + 1) : xstrdup("");
     sb_init(b);
     return s;
 }
