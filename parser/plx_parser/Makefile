@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -std=c99 -Wall -Wextra
-TARGET  = plx_parser.exe
+TARGET  = plx_parser
 OBJS    = plx_parser.o helpers.o plx_parser_demo.o
 
 all: $(TARGET)
