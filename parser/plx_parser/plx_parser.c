@@ -78,9 +78,10 @@ static FieldId parse_label(const char *content, const char **rest)
 static char *comment_content(const char *line)
 {
     const char *s = skip_ws(line);
-    size_t len = strlen(s);
-
+    
     if(s[0] != '/' || s[1] != '*') return NULL;
+    
+    size_t len = strlen(s);
 
     char *content;
     size_t n;
