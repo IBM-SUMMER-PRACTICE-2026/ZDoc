@@ -101,11 +101,18 @@ static char *extract_signature(const char *src, size_t start, size_t len) {
     return b.data;
 }
 
-// Count the 1-based line number of a byte offset into src.
-static uint32_t line_of(const char *src, size_t pos) {
-    uint32_t line = 1;
-    for(size_t k = 0; k < pos; k++)
+// Count the 1-based line number of a byte offset into src. *anchor_pos/*anchor_line
+// carry the position/line of the previous call so each call only scans the gap since
+// then, instead of re-scanning from the start of the file every time - callers must
+// only call this with non-decreasing 'pos' values (true for java_parse's single
+// forward pass), otherwise it falls back to a full re-scan from the start.
+static uint32_t line_of(const char *src, size_t pos, size_t *anchor_pos, uint32_t *anchor_line) {
+    size_t k = pos >= *anchor_pos ? *anchor_pos : 0;
+    uint32_t line = pos >= *anchor_pos ? *anchor_line : 1;
+    for(; k < pos; k++)
         if(src[k] == '\n') line++;
+    *anchor_pos = pos;
+    *anchor_line = line;
     return line;
 }
 
@@ -124,6 +131,9 @@ static char *extract_name(const char *sig) {
 Module java_parse(const char *path, const char *src, size_t len) {
     Module m = {0};
     m.filename = xstrndup(path, strlen(path));
+
+    size_t line_anchor_pos = 0;
+    uint32_t line_anchor_line = 1;
 
     size_t i = 0;
     while(i < len) {
@@ -165,7 +175,7 @@ Module java_parse(const char *path, const char *src, size_t len) {
                     sym.signature   = extract_signature(src, sig_start, len);
                     free(sym.name);
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
-                    sym.line        = line_of(src, sig_start);
+                    sym.line        = line_of(src, sig_start, &line_anchor_pos, &line_anchor_line);
                     module_push(&m, sym);
                 } else {
                     symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
