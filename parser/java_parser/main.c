@@ -45,20 +45,31 @@ static char *read_file(const char *path, size_t *out_len, const char **err) {
     return buf;
 }
 
+// True if c needs escaping in a JSON string - everything else can be
+// written out verbatim in one run instead of one fputc() per byte.
+static int json_needs_escape(unsigned char c) {
+    return c == '"' || c == '\\' || c < 0x20;
+}
+
 static void jstr(FILE *o, const char *s) {
     fputc('"', o);
-    for(const unsigned char *p = (const unsigned char *)s; *p; p++) {
+    const unsigned char *p = (const unsigned char *)s;
+    const unsigned char *run_start = p;
+    for(; *p; p++) {
+        if(!json_needs_escape(*p)) continue;
+
+        if(p > run_start) fwrite(run_start, 1, (size_t)(p - run_start), o);
         switch(*p) {
             case '"':  fputs("\\\"", o); break;
             case '\\': fputs("\\\\", o); break;
             case '\n': fputs("\\n", o); break;
             case '\r': fputs("\\r", o); break;
             case '\t': fputs("\\t", o); break;
-            default:
-                if(*p < 0x20) fprintf(o, "\\u%04x", *p);
-                else fputc(*p, o);
+            default:   fprintf(o, "\\u%04x", *p); break;
         }
+        run_start = p + 1;
     }
+    if(p > run_start) fwrite(run_start, 1, (size_t)(p - run_start), o);
     fputc('"', o);
 }
 

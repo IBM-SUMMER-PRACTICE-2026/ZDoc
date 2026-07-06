@@ -1,5 +1,5 @@
 CC     ?= cc
-CFLAGS ?= -Wall -Wextra -std=c11
+CFLAGS ?= -O2 -Wall -Wextra -std=c11
 
 all: zdoc-java-parser
 

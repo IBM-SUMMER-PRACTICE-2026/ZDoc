@@ -20,8 +20,7 @@ typedef struct {
 // One method or constructor 
 typedef struct {
     char  *name; // the method or constructor name
-    char  *signature; // combination of the method or constuctors name and parameter list 
-    char  *raw_comment; // the doc comment, markers are stripped
+    char  *signature; // combination of the method or constuctors name and parameter list
     char  *brief; // short summary from the comment
     char  *returns; // text from @return
     char  *diagram; // AI mode diagram

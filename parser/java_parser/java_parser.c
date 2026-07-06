@@ -10,7 +10,6 @@
 static void symbol_free(Symbol *y) {
     free(y->name);
     free(y->signature);
-    free(y->raw_comment);
     free(y->brief);
     free(y->returns);
     free(y->diagram);
@@ -167,10 +166,6 @@ Module java_parse(const char *path, const char *src, size_t len) {
                 size_t content_len = content_end > content_start ? content_end - content_start : 0;
                 Symbol sym = {0};
                 if(parse_doc_comment(src + content_start, content_len, &sym)) {
-                    const char *raw_start;
-                    size_t raw_len;
-                    trim(src + content_start, content_len, &raw_start, &raw_len);
-                    sym.raw_comment = xstrndup(raw_start, raw_len);
                     size_t sig_start = skip_annotations(src, next, len);  // skip annotations so they aren't mistaken for the signature
                     sym.signature   = extract_signature(src, sig_start, len);
                     free(sym.name);

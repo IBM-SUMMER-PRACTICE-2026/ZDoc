@@ -147,7 +147,6 @@ int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
 
     out->name = name_buf.len > 0 ? name_buf.data : NULL;
     out->signature = NULL;
-    out->raw_comment = NULL;
     out->brief = brief_buf.len > 0 ? brief_buf.data : NULL;
     out->returns = returns_buf.len > 0 ? returns_buf.data : NULL;
     out->diagram = NULL;
