@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "helpers.h"
 #include "plx_parser.h"
@@ -46,7 +47,9 @@ int main(int argc, char **argv)
             continue;
         }
 
+        clock_t t0 = clock();
         mod = plx_parse_file(argv[i]);
+        clock_t t1 = clock();
         if (!mod) {
             rc = 1;
             continue;
@@ -55,6 +58,8 @@ int main(int argc, char **argv)
             printf("\n");
         plx_print_module(mod);
         plx_free_module(mod);
+        fprintf(stderr, "%s: parsed in %.3f ms\n", argv[i],
+                (double)(t1 - t0) * 1000.0 / CLOCKS_PER_SEC);
     }
     return rc;
 }
