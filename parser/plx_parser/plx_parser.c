@@ -116,9 +116,9 @@ static int is_banner(const char *content)
 {
     for (; *content; content++) {
         if (*content != '*')
-            return 1;
+            return 0;
     }
-    return 0;
+    return 1;
 }
 
 /* ------------------------------------------------------------------ */
