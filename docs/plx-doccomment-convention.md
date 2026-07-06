@@ -31,10 +31,15 @@ part of the documented content.
 
 | Label variants seen | Normalized field | Meaning |
 |---------------------|------------------|---------|
-| `Title`, `TITLE`, `Routine` | `name` | Human-readable name/title of the procedure |
-| `Logic`, `Function`, `FUNCTION` | `description` | What the procedure does |
-| `Input`, `INPUT` | `input` | Parameters accepted |
-| `Output`, `OUTPUT` | `output` | Return value / return codes |
+| `Title`, `TITLE`, `Routine`, `name` | `name` | Human-readable name/title of the procedure |
+| `Logic`, `Function`, `FUNCTION`, `function` | `description` | What the procedure does |
+| `Input`, `INPUT`, `input` | `input` | Parameters accepted |
+| `Output`, `OUTPUT`, `output` | `output` | Return value / return codes |
+
+The lowercase `name` / `function` / `input` / `output` spellings appear in the
+[Method Prolog blocks](#method-prolog-blocks-plxmac-macro-routines) used by
+`.plxmac` macro routines — they normalize to the same fields (case-insensitive
+matching already covers them).
 
 Treat this list as **non-exhaustive** — new files may introduce label spellings
 not seen yet (e.g. plurals, abbreviations). The parser should normalize via a
@@ -127,8 +132,8 @@ the current field.
 - **End:** the line immediately before the procedure's signature statement —
   either:
   - a plain `NAME: PROC(...)` statement, or
-  - (if applicable) an `?AsaXMac ProcEntry` / structured marker wrapping the
-    procedure — **confirm this format before relying on it.**
+  - an `?AsaXMac ProcEntry(NAME)` macro marker wrapping the procedure — see
+    [Method Prolog Blocks](#method-prolog-blocks-plxmac-macro-routines) below.
 
 Everything from block start to block end belongs to one procedure's doc comment.
 
@@ -137,3 +142,111 @@ The procedure's own name (from the `PROC` statement or entry marker) should be
 association — don't rely on proximity alone, since module-level header blocks
 (e.g. `MODULE-NAME =`, `FUNCTION =` in the file's top specification section) can
 look similar but aren't tied to any single procedure.
+
+## Method Prolog Blocks (`.plxmac` macro routines)
+
+`.plxmac` macro-library files (see [`student_grades.plxmac`](student_grades.plxmac))
+do **not** use the plain `NAME: PROC(...)` procedure form. Their routines are
+defined by the `?AsaXMac` macro processor, and each is preceded by a **Method
+Prolog** comment box instead of the per-line `/* Label: ... @TAG*/` format
+described above. A parser targeting `.plxmac` must recognize this alternate
+convention; the extracted fields normalize to the same `name` / `description` /
+`input` / `output` symbol as everywhere else.
+
+> **Status:** this section is derived from the **single available example**
+> (`student_grades.plxmac`). It documents what that file demonstrates, but the
+> `?AsaXMac` macro form should be validated against further real PL/X macro
+> sources before edge cases are treated as settled — do not assume the shapes
+> below are exhaustive.
+
+### Block Delimiters
+
+The prolog is a **single multi-line comment** (not one comment per line). Its
+extent is marked by two banner lines:
+
+```
+*/** Start of Method Prolog *******************************************
+ ...
+**** End of Method Prolog ********************************************/
+```
+
+- **Start:** a line whose text is `Start of Method Prolog` surrounded by `*`
+  padding. Note the leading `*/**`: the PL/X comment opens at the `/*` inside
+  this banner; the leading `*` is a listing-border artifact that sits, strictly
+  read, outside the comment. Recognize the block by the **`Start of Method
+  Prolog` banner text**, not by the exact delimiter bytes.
+- **End:** a line whose text is `End of Method Prolog` padded with `*`, closed
+  by the `*/` that terminates the whole comment.
+- **Left border:** every interior line begins with a single `*` box character
+  (at column 0), followed by whitespace. Strip this leading `*` and surrounding
+  whitespace before parsing the line's content.
+
+### Field Lines
+
+Interior lines use the same `label: content` shape as the main convention, with
+lowercase labels and no `@TAG` suffix (these blocks are not per-line tagged):
+
+```
+*  name:    GetLetterGrade:
+*
+*  function: Assign a grade letter based on the student score
+*
+*  input:   score         - score of a student
+*                           Fixed(31)
+*           letter        - grade letter to be set based on score
+*                           Char
+*
+*  output:  assigns new value to letter
+```
+
+- `name`, `function`, `input`, `output` normalize to `name`, `description`,
+  `input`, `output` respectively (case-insensitive, per the label table above).
+- A trailing `:` on the `name` value (`GetLetterGrade:`) is decoration — strip it.
+- Blank border lines (`*` alone) are **padding** — skip them, don't treat them
+  as field terminators or continuations.
+- The `input` field uses the [`name - description` row format](#2-name---description-rows);
+  a row's type can wrap onto the next line with no ` - ` separator (e.g.
+  `Fixed(31)` / `Char` above) and joins to the preceding row's description.
+
+### Procedure Entry / Exit Markers
+
+Immediately after the prolog, and again after the routine body, two additional
+markers appear:
+
+```
+ /* ++H "GetLetterGrade": entry to assign a letter grade         @L0A*/
+ ?AsaXMac ProcEntry(GetLetterGrade)
+          EDTL(score    := Fixed(31) ByValue
+              ,letter   := Char ByAddr)
+            ;
+ ...
+ ?AsaXMac ProcEnd(GetLetterGrade);
+ /* ++H End "GetLetterGrade"                                     @L0A*/
+```
+
+- **`?AsaXMac ProcEntry(NAME)`** is the routine's signature statement — the
+  `.plxmac` equivalent of `NAME: PROC(...)`. It is the **block-end signature**
+  that closes the doc block, and `NAME` is the authoritative procedure name to
+  cross-check against the prolog's `name` field.
+- **`EDTL(param := Type ByValue|ByAddr, ...)`** declares the parameter list, one
+  parameter per `name := Type passing-convention` entry, comma-separated (the
+  comma often leads the continuation line). An optional **`Returns(...)`** clause
+  follows `EDTL` before the terminating `;` — in the example this is always
+  `Returns(IsA(<type>))`.
+- The signature can span multiple lines up to the terminating `;`, exactly like
+  a plain `PROC` signature — scan to the first `;` at paren depth 0, ignoring
+  `;`/parens inside comments and strings.
+- **`?AsaXMac ProcEnd(NAME)`** marks the routine's end (it may carry a trailing
+  `! ReturnProcess(Return(...))` clause). This is *not* part of the doc block.
+- **`/* ++H "NAME": ... */`** and **`/* ++H End "NAME" */`** are secondary
+  index/entry markers (also seen as `/*++h '<NAME>': ENTRY */` in `.plx`). They
+  are metadata banners, not doc-comment fields — do not fold them into any field.
+
+### Association Rule
+
+Because the prolog box, the `++H` markers, and the `ProcEntry` statement all
+carry the routine name, cross-check them: the `name` field from the prolog, the
+name in `?AsaXMac ProcEntry(NAME)`, and the `++H "NAME"` marker should agree.
+By analogy to the `PROC`-name vs `Title`-field check in the plain convention, a
+mismatch is **recommended** to be reported as a warning (this rule is inferred,
+not observed in the example — the sample file's names are consistent).
