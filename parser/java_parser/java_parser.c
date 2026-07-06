@@ -47,18 +47,30 @@ static size_t skip_annotations(const char *src, size_t start, size_t len) {
     size_t i = start;
     for(;;) {
         size_t after_ws = skip_whitespace(src, i, len);
+        if(after_ws + 1 < len && src[after_ws] == '/' && src[after_ws + 1] == '/') {
+            after_ws = skip_line_comment(src, after_ws, len);
+            i = after_ws; 
+            continue;
+        }
+
+        if(after_ws + 1 < len && src[after_ws] == '/' && src[after_ws + 1] == '*'){
+            size_t end = after_ws + 2;
+            while(end < len && !(src[end] == '*' && end + 1 < len && src[end + 1] == '/')) end++;
+            i = end < len ? end + 2 : len;
+            continue;
+        }
         if(after_ws >= len || src[after_ws] != '@') return after_ws;
 
         size_t j = after_ws + 1;
         while(j < len && (isalnum((unsigned char)src[j]) || src[j] == '_' || src[j] == '.')) j++;
 
         size_t after_name = skip_whitespace(src, j, len);
-        if(after_name < len && src[after_name] == '(') {
+        if(after_name < len && src[after_name] =='(') {
             int depth = 0;
             j = after_name;
             do {
                 if(src[j] == '(') depth++;
-                else if(src[j] == ')') depth--;
+                else if(src[j] ==')')depth--;
                 j++;
             } while(j < len && depth > 0);
         }
@@ -142,11 +154,12 @@ Module java_parse(const char *path, const char *src, size_t len) {
             // If it's a doc comment, parse it and extract the signature and name
             if(scan_start < len && src[scan_start] == '*') {
                 size_t content_start = scan_start + 1;  // start after /**
+                size_t content_len = content_end > content_start ? content_end - content_start : 0;
                 Symbol sym = {0};
-                if(parse_doc_comment(src + content_start, content_end - content_start, &sym)) {
+                if(parse_doc_comment(src + content_start, content_len, &sym)) {
                     const char *raw_start;
                     size_t raw_len;
-                    trim(src + content_start, content_end - content_start, &raw_start, &raw_len);
+                    trim(src + content_start, content_len, &raw_start, &raw_len);
                     sym.raw_comment = xstrndup(raw_start, raw_len);
                     size_t sig_start = skip_annotations(src, next, len);  // skip annotations so they aren't mistaken for the signature
                     sym.signature   = extract_signature(src, sig_start, len);
