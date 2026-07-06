@@ -52,6 +52,7 @@ typedef struct {
     char *filename;
     Symbol *symbols;
     int symbolCount;
+    int symbolCap; /* internal: geometric-growth capacity of symbols[] */
 } Module;
 
 #define PLX_COMMENT_LINE_WIDTH 71

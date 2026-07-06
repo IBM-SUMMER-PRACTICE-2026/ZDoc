@@ -384,11 +384,30 @@ static void build_input_params(const StrList *lines, Symbol *sym,
 static Symbol *module_add_symbol(Module *mod)
 {
     Symbol *sym;
-    mod->symbols = xrealloc(mod->symbols,
-                            (size_t)(mod->symbolCount + 1) * sizeof(Symbol));
+
+    if (mod->symbolCount == mod->symbolCap) {
+        mod->symbolCap = mod->symbolCap ? mod->symbolCap * 2 : 8;
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCap * sizeof(Symbol));
+    }
     sym = &mod->symbols[mod->symbolCount++];
     memset(sym, 0, sizeof(*sym));
     return sym;
+}
+
+
+static void module_shrink_to_fit(Module *mod)
+{
+    if (mod->symbolCount == mod->symbolCap)
+        return;
+    if (mod->symbolCount == 0) {
+        free(mod->symbols);
+        mod->symbols = NULL;
+    } else {
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCount * sizeof(Symbol));
+    }
+    mod->symbolCap = mod->symbolCount;
 }
 
 /*
@@ -629,6 +648,7 @@ Module *plx_parse_file(const char *path)
     mod->filename = xstrdup(path);
     mod->symbols = NULL;
     mod->symbolCount = 0;
+    mod->symbolCap = 0;
 
     block_init(&blk);
     sb_init(&sig);
@@ -735,6 +755,7 @@ Module *plx_parse_file(const char *path)
         free(sigProc);
         sb_free(&sig);
     }
+    module_shrink_to_fit(mod);
 
     fclose(f);
     return mod;
