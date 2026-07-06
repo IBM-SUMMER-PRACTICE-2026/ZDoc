@@ -9,8 +9,9 @@
 #define JAVA_PARSER_H
 
 #include <stddef.h>
+#include <stdint.h>
 
-// One parameter of a method 
+// One parameter of a method
 typedef struct {
     char *name;  // the parameter name
     char *description; // text from @param, NULL if undocumented 
@@ -26,7 +27,8 @@ typedef struct {
     char  *diagram; // AI mode diagram
     char  *notes; //text from @throws general notes etc.
     Param *params; // the parameters
-    size_t param_count; // number of the parameters 
+    size_t param_count; // number of the parameters
+    uint32_t line; // 1-based line of the declaration
 } Symbol;
 
 

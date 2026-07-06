@@ -23,10 +23,7 @@ static void symbol_free(Symbol *y) {
 }
 
 void module_free(Module *m) {
-    for(size_t s = 0; s < m->count; s++) {
-        symbol_free(&m->symbols[s]);
-    }
-
+    for(size_t s = 0; s < m->count; s++) symbol_free(&m->symbols[s]);
     free(m->symbols);
     free(m->filename);
     m->symbols = NULL;
@@ -50,7 +47,7 @@ static size_t skip_annotations(const char *src, size_t start, size_t len) {
     size_t i = start;
     for(;;) {
         size_t after_ws = skip_whitespace(src, i, len);
-        if(after_ws >= len || src[after_ws] != '@') return i;
+        if(after_ws >= len || src[after_ws] != '@') return after_ws;
 
         size_t j = after_ws + 1;
         while(j < len && (isalnum((unsigned char)src[j]) || src[j] == '_' || src[j] == '.')) j++;
@@ -90,6 +87,14 @@ static char *extract_signature(const char *src, size_t start, size_t len) {
 
     if(b.len == 0) return NULL;
     return b.data;
+}
+
+// Count the 1-based line number of a byte offset into src.
+static uint32_t line_of(const char *src, size_t pos) {
+    uint32_t line = 1;
+    for(size_t k = 0; k < pos; k++)
+        if(src[k] == '\n') line++;
+    return line;
 }
 
 // Extract the method or constructor name from the signature. Returns NULL if it can't be found.
@@ -147,6 +152,7 @@ Module java_parse(const char *path, const char *src, size_t len) {
                     sym.signature   = extract_signature(src, sig_start, len);
                     free(sym.name);
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
+                    sym.line        = line_of(src, sig_start);
                     module_push(&m, sym);
                 } else {
                     symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
