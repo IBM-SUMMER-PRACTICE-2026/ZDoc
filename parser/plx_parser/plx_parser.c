@@ -129,6 +129,7 @@ static void block_init(DocBlock *b)
 {
     b->active = 0;
     b->closed = 0;
+    b->prolog = 0;
     b->current = FIELD_NONE;
     b->startLine = 0;
     sb_init(&b->name);
@@ -163,7 +164,17 @@ static void block_append(DocBlock *b, FieldId field, const char *text)
         sb_join(&b->output, text);
         break;
     case FIELD_INPUT:
-        sl_push(&b->inputLines, xstrdup(text));
+        if (b->prolog && b->inputLines.count > 0 && !strstr(text, " - ")) {
+            /* Method Prolog rows wrap the type onto a bare line with no
+             * " - " separator: join it to the previous row's description. */
+            char **last = &b->inputLines.items[b->inputLines.count - 1];
+            size_t oldLen = strlen(*last), addLen = strlen(text);
+            *last = xrealloc(*last, oldLen + 1 + addLen + 1);
+            (*last)[oldLen] = ' ';
+            memcpy(*last + oldLen + 1, text, addLen + 1);
+        } else {
+            sl_push(&b->inputLines, xstrdup(text));
+        }
         break;
     default:
         break;
@@ -421,6 +432,72 @@ static void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
     block_reset(b);
 }
 
+/*
+ * Feed one line of doc-comment content (label, continuation or unknown)
+ * into the pending block. Shared by the single-line comment path and the
+ * Method Prolog path of the main parse loop.
+ */
+static void feed_doc_line(DocBlock *blk, Module *mod, const char *content,
+                          int lineNo)
+{
+    const char *rest = NULL;
+    FieldId field = parse_label(content, &rest);
+
+    if (field == FIELD_NONE) {
+        /* continuation of the currently open field */
+        if (blk->active && !blk->closed &&
+            blk->current != FIELD_NONE &&
+            blk->current != FIELD_UNKNOWN)
+            block_append(blk, blk->current, content);
+    } else if (field == FIELD_UNKNOWN) {
+        /* unknown label: stop feeding the previous field */
+        if (blk->active && !blk->closed)
+            blk->current = FIELD_UNKNOWN;
+    } else {
+        if (blk->closed) {
+            /* new block starts while one is pending: flush it */
+            block_to_symbol(blk, mod, NULL, NULL, lineNo);
+        }
+        if (!blk->active)
+            blk->startLine = lineNo;
+        blk->active = 1;
+        block_append(blk, field, rest);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Method Prolog blocks (.plxmac macro routines)                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Method Prolog banner detection (see docs/plx-doccomment-convention.md,
+ * "Method Prolog Blocks"). The block is one multi-line comment with quirky
+ * listing-border delimiters, so it is recognized by the banner text, not
+ * the delimiter bytes.
+ */
+static int is_prolog_start(const char *line)
+{
+    return str_istr(line, "Start of Method Prolog") != NULL;
+}
+
+static int is_prolog_end(const char *line)
+{
+    return str_istr(line, "End of Method Prolog") != NULL;
+}
+
+/*
+ * Strip the leading '*' box border from a Method Prolog interior line and
+ * return the trimmed content (heap-allocated; "" for a padding-only line).
+ */
+static char *prolog_content(const char *line)
+{
+    const char *s = skip_ws(line);
+
+    if (*s == '*')
+        s++;
+    return trim_dup(s, strlen(s));
+}
+
 /* ------------------------------------------------------------------ */
 /* PROC statement detection and signature capture                      */
 /* ------------------------------------------------------------------ */
@@ -446,6 +523,39 @@ static char *match_proc_start(const char *line)
     if (isalnum((unsigned char)p[4]) || p[4] == '_')
         return NULL; /* e.g. PROCESS */
     return xstrndup(s, (size_t)(idEnd - s));
+}
+
+/*
+ * Match "?AsaXMac ProcEntry(<IDENT>)" at the start of a code line; returns
+ * the heap-allocated name or NULL. Case-insensitive. ProcEnd deliberately
+ * does not match.
+ */
+static char *match_procentry(const char *line)
+{
+    const char *s = skip_ws(line);
+    const char *idStart, *p;
+
+    if (*s != '?')
+        return NULL;
+    s++;
+    if (!strn_ieq(s, "AsaXMac", 7))
+        return NULL;
+    s += 7;
+    if (!isspace((unsigned char)*s))
+        return NULL;
+    s = skip_ws(s);
+    if (!strn_ieq(s, "ProcEntry", 9))
+        return NULL;
+    s = skip_ws(s + 9);
+    if (*s != '(')
+        return NULL;
+    idStart = skip_ws(s + 1);
+    p = idStart;
+    while (isalnum((unsigned char)*p) || *p == '_')
+        p++;
+    if (p == idStart || *skip_ws(p) != ')')
+        return NULL;
+    return xstrndup(idStart, (size_t)(p - idStart));
 }
 
 static int sig_consume(StrBuf *sig, const char *line, SigState *st)
@@ -510,6 +620,7 @@ Module *plx_parse_file(const char *path)
     int lineNo = 0;
 
     int capturing = 0;
+    int inProlog = 0;
     SigState sigState = { 0, 0, 0 };
     StrBuf sig;
     char *sigProc = NULL;
@@ -547,12 +658,37 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
+        // Inside a Method Prolog block (.plxmac)
+        if (inProlog) {
+            if (is_prolog_end(line)) {
+                if (blk.active)
+                    blk.closed = 1; /* block done; wait for the ProcEntry */
+                inProlog = 0;
+            } else {
+                content = prolog_content(line);
+                if (*content != '\0') /* padding-only lines are skipped */
+                    feed_doc_line(&blk, mod, content, lineNo);
+                free(content);
+            }
+            continue;
+        }
+
+        if (is_prolog_start(line)) {
+            if (blk.closed) {
+                /* new block starts while one is pending: flush it */
+                block_to_symbol(&blk, mod, NULL, NULL, lineNo);
+            }
+            inProlog = 1;
+            blk.prolog = 1;
+            continue;
+        }
+
         content = comment_content(line);
         if (content) {
             // Padding only
             if (*content == '\0') {
                 /* padding-only line: skip, keep current field */
-            } 
+            }
             // Banner line
             else if (is_banner(content)) {
                 if (blk.active)
@@ -560,35 +696,15 @@ Module *plx_parse_file(const char *path)
             }
             // Doc comment line
             else {
-                const char *rest = NULL;
-                FieldId field = parse_label(content, &rest);
-
-                if (field == FIELD_NONE) {
-                    /* continuation of the currently open field */
-                    if (blk.active && !blk.closed &&
-                        blk.current != FIELD_NONE &&
-                        blk.current != FIELD_UNKNOWN)
-                        block_append(&blk, blk.current, content);
-                } else if (field == FIELD_UNKNOWN) {
-                    /* unknown label: stop feeding the previous field */
-                    if (blk.active && !blk.closed)
-                        blk.current = FIELD_UNKNOWN;
-                } else {
-                    if (blk.closed) {
-                        /* new block starts while one is pending: flush it */
-                        block_to_symbol(&blk, mod, NULL, NULL, lineNo);
-                    }
-                    if (!blk.active)
-                        blk.startLine = lineNo;
-                    blk.active = 1;
-                    block_append(&blk, field, rest);
-                }
+                feed_doc_line(&blk, mod, content, lineNo);
             }
             free(content);
             continue;
         }
 
         procName = match_proc_start(line);
+        if (!procName)
+            procName = match_procentry(line);
         if (procName) {
             capturing = 1;
             sigState.depth = 0;

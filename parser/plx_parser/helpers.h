@@ -13,6 +13,9 @@ char *xstrdup(const char *s);
 int str_ieq(const char *a, const char *b);
 int strn_ieq(const char *a, const char *b, size_t n);
 
+/* Case-insensitive substring search; returns the match or NULL. */
+const char *str_istr(const char *hay, const char *needle);
+
 const char *skip_ws(const char *s);
 
 /* Duplicate s[0..n) with both ends trimmed. */

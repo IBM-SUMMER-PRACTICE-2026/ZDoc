@@ -63,6 +63,24 @@ int strn_ieq(const char *a, const char *b, size_t n)
     return 1;
 }
 
+const char *str_istr(const char *hay, const char *needle)
+{
+    size_t i;
+
+    if (!*needle)
+        return hay;
+    for (; *hay; hay++) {
+        for (i = 0; needle[i]; i++) {
+            if (tolower((unsigned char)hay[i]) !=
+                tolower((unsigned char)needle[i]))
+                break;
+        }
+        if (!needle[i])
+            return hay;
+    }
+    return NULL;
+}
+
 const char *skip_ws(const char *s)
 {
     while (*s && isspace((unsigned char)*s))

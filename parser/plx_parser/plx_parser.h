@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     int active;      /* at least one recognized field collected */
     int closed;      /* end banner seen; awaiting the PROC statement */
+    int prolog;      /* collected from a .plxmac Method Prolog block */
     FieldId current; /* field that continuation lines append to */
     int startLine;
     StrBuf name, description, output;
