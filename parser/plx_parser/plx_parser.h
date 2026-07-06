@@ -3,6 +3,19 @@
 
 #define MAX_LINE 1024
 
+/* ------------------------------------------------------------------ */
+/* Label lookup                                                        */
+/* ------------------------------------------------------------------ */
+
+typedef enum {
+    FIELD_NONE = -1, /* not a labeled line */
+    FIELD_NAME,
+    FIELD_DESCRIPTION,
+    FIELD_INPUT,
+    FIELD_OUTPUT,
+    FIELD_UNKNOWN /* labeled line, but the label is not recognized */
+} FieldId;
+
 typedef struct {
     char *name;
     char *description;

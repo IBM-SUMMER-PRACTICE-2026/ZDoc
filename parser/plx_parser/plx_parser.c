@@ -14,19 +14,6 @@
 #include "helpers.h"
 #include "plx_parser.h"
 
-/* ------------------------------------------------------------------ */
-/* Label lookup                                                        */
-/* ------------------------------------------------------------------ */
-
-typedef enum {
-    FIELD_NONE = -1, /* not a labeled line */
-    FIELD_NAME,
-    FIELD_DESCRIPTION,
-    FIELD_INPUT,
-    FIELD_OUTPUT,
-    FIELD_UNKNOWN /* labeled line, but the label is not recognized */
-} FieldId;
-
 /*
  * Case-insensitive label -> normalized field lookup. The convention marks
  * this list as non-exhaustive: extend it with new synonyms here without
