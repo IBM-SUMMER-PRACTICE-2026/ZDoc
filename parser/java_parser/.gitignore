@@ -1,3 +1,5 @@
 *.o
 zdoc-java-parser
 *.dSYM/
+tests/big.java
+tests/small.java
