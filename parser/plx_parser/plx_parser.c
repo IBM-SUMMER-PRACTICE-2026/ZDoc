@@ -80,7 +80,7 @@ static char *comment_content(const char *line)
     const char *s = skip_ws(line);
     
     if(s[0] != '/' || s[1] != '*') return NULL;
-    
+
     size_t len = strlen(s);
 
     char *content;
@@ -497,12 +497,18 @@ static void feed_doc_line(DocBlock *blk, Module *mod, const char *content,
  */
 static int is_prolog_start(const char *line)
 {
-    return str_istr(line, "Start of Method Prolog") != NULL;
+    const char *s = skip_ws(line);
+    if (*s != '*' && *s != '/')
+        return 0;
+    return str_istr(s, "Start of Method Prolog") != NULL;
 }
 
 static int is_prolog_end(const char *line)
 {
-    return str_istr(line, "End of Method Prolog") != NULL;
+    const char *s = skip_ws(line);
+    if (*s != '*' && *s != '/')
+        return 0;
+    return str_istr(s, "End of Method Prolog") != NULL;
 }
 
 /*
