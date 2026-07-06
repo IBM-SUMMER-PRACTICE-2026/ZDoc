@@ -1,10 +1,29 @@
 #ifndef PLX_PARSER_H
 #define PLX_PARSER_H
 
+#define MAX_LINE 1024
+
 typedef struct {
     char *name;
     char *description;
 } InputParam;
+
+typedef struct {
+    int active;      /* at least one recognized field collected */
+    int closed;      /* end banner seen; awaiting the PROC statement */
+    FieldId current; /* field that continuation lines append to */
+    int startLine;
+    StrBuf name, description, output;
+    StrList inputLines; /* input kept per line for param splitting */
+} DocBlock;
+
+/* Signature capture state: scan until ';' at paren depth 0, outside
+ * comments and quoted strings. Comments are dropped from the signature. */
+typedef struct {
+    int depth;
+    int inComment;
+    int inString;
+} SigState;
 
 typedef struct {
     char *name;        /* normalized from the Title/Routine/... doc field */

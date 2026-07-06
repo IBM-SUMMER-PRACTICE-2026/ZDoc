@@ -14,8 +14,6 @@
 #include "helpers.h"
 #include "plx_parser.h"
 
-#define MAX_LINE 1024
-
 /* ------------------------------------------------------------------ */
 /* Label lookup                                                        */
 /* ------------------------------------------------------------------ */
@@ -72,8 +70,10 @@ static FieldId parse_label(const char *content, const char **rest)
     *rest = p + 1;
 
     for (i = 0; i < sizeof(LABEL_TABLE) / sizeof(LABEL_TABLE[0]); i++) {
-        if (strlen(LABEL_TABLE[i].label) == n &&
-            strn_ieq(LABEL_TABLE[i].label, start, n))
+        if (
+            strlen(LABEL_TABLE[i].label) == n &&
+            strn_ieq(LABEL_TABLE[i].label, start, n)
+        )
             return LABEL_TABLE[i].field;
     }
     return FIELD_UNKNOWN;
@@ -92,27 +92,33 @@ static char *comment_content(const char *line)
 {
     const char *s = skip_ws(line);
     size_t len = strlen(s);
+
+    if(s[0] != '/' || s[1] != '*') return NULL;
+
     char *content;
     size_t n;
 
     while (len && isspace((unsigned char)s[len - 1]))
         len--;
-    if (len < 4 || s[0] != '/' || s[1] != '*' ||
-        s[len - 2] != '*' || s[len - 1] != '/')
-        return NULL;
+    if (
+        len < 4 ||
+        s[len - 2] != '*' ||
+        s[len - 1] != '/'
+    ) return NULL;
 
     content = trim_dup(s + 2, len - 4);
 
     /* Strip the trailing change-activity tag (@L0A, @00C, ...). */
     n = strlen(content);
-    if (n >= 4 && content[n - 4] == '@' &&
+    if (
+        (n == 4 || isspace((unsigned char)content[n - 5])) &&
+        n >= 4 && content[n - 4] == '@' &&
         isalnum((unsigned char)content[n - 3]) &&
         isalnum((unsigned char)content[n - 2]) &&
-        isalnum((unsigned char)content[n - 1]) &&
-        (n == 4 || isspace((unsigned char)content[n - 5]))) {
+        isalnum((unsigned char)content[n - 1])
+    ) {
         n -= 4;
-        while (n && isspace((unsigned char)content[n - 1]))
-            n--;
+        while (n && isspace((unsigned char)content[n - 1])) n--;
         content[n] = '\0';
     }
     return content;
@@ -121,28 +127,16 @@ static char *comment_content(const char *line)
 /* A divider/banner line: content made of '*' only (plus whitespace). */
 static int is_banner(const char *content)
 {
-    int saw = 0;
     for (; *content; content++) {
-        if (*content == '*')
-            saw = 1;
-        else if (!isspace((unsigned char)*content))
-            return 0;
+        if (*content != '*')
+            return 1;
     }
-    return saw;
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
 /* Doc block accumulator                                               */
 /* ------------------------------------------------------------------ */
-
-typedef struct {
-    int active;      /* at least one recognized field collected */
-    int closed;      /* end banner seen; awaiting the PROC statement */
-    FieldId current; /* field that continuation lines append to */
-    int startLine;
-    StrBuf name, description, output;
-    StrList inputLines; /* input kept per line for param splitting */
-} DocBlock;
 
 static void block_init(DocBlock *b)
 {
@@ -467,14 +461,6 @@ static char *match_proc_start(const char *line)
     return xstrndup(s, (size_t)(idEnd - s));
 }
 
-/* Signature capture state: scan until ';' at paren depth 0, outside
- * comments and quoted strings. Comments are dropped from the signature. */
-typedef struct {
-    int depth;
-    int inComment;
-    int inString;
-} SigState;
-
 static int sig_consume(StrBuf *sig, const char *line, SigState *st)
 {
     const char *p = line;
@@ -526,6 +512,11 @@ static int sig_consume(StrBuf *sig, const char *line, SigState *st)
 Module *plx_parse_file(const char *path)
 {
     FILE *f = fopen(path, "r");
+    if (!f) {
+        perror(path);
+        return NULL;
+    }
+
     Module *mod;
     DocBlock blk;
     char line[MAX_LINE];
@@ -536,11 +527,6 @@ Module *plx_parse_file(const char *path)
     StrBuf sig;
     char *sigProc = NULL;
 
-    if (!f) {
-        perror(path);
-        return NULL;
-    }
-
     mod = xmalloc(sizeof(Module));
     mod->filename = xstrdup(path);
     mod->symbols = NULL;
@@ -549,6 +535,7 @@ Module *plx_parse_file(const char *path)
     block_init(&blk);
     sb_init(&sig);
 
+    // Iterate line by line
     while (fgets(line, sizeof line, f)) {
         char *content;
         char *procName;
@@ -575,12 +562,17 @@ Module *plx_parse_file(const char *path)
 
         content = comment_content(line);
         if (content) {
+            // Padding only
             if (*content == '\0') {
                 /* padding-only line: skip, keep current field */
-            } else if (is_banner(content)) {
+            } 
+            // Banner line
+            else if (is_banner(content)) {
                 if (blk.active)
                     blk.closed = 1; /* block done; wait for the PROC */
-            } else {
+            }
+            // Doc comment line
+            else {
                 const char *rest = NULL;
                 FieldId field = parse_label(content, &rest);
 
