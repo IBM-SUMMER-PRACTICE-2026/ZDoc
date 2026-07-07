@@ -1,0 +1,20 @@
+#!/bin/sh
+# Stub provider: consumes the snippet, returns a valid graph. Emits a
+# call node referencing audit_removal so call_edges can be tested.
+# Counts invocations in $ZDOC_STUB_COUNT when set.
+cat > /dev/null
+if [ -n "$ZDOC_STUB_COUNT" ]; then
+    echo x >> "$ZDOC_STUB_COUNT"
+fi
+cat <<'EOF'
+{"nodes":[
+ {"id":"A","kind":"step","text":"Entry: fn"},
+ {"id":"B","kind":"decision","text":"More work?"},
+ {"id":"C","kind":"call","text":"Call audit_removal"},
+ {"id":"D","kind":"return","text":"Return RC=0"}],
+ "edges":[
+ {"from":"A","to":"B"},
+ {"from":"B","to":"C","label":"Yes"},
+ {"from":"B","to":"D","label":"No"},
+ {"from":"C","to":"D"}]}
+EOF

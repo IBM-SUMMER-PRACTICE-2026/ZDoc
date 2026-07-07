@@ -20,6 +20,21 @@ Doc comments (`/** */`, `/*! */`, `///`, `//!`) are parsed for
 verbatim under notes. A block carrying `@file` / `@mainpage` becomes the
 module-level doc instead of attaching to the next symbol.
 
+## `--ai-context` (AI Assisted mode)
+
+With `--ai-context` the parser additionally emits, for
+[`zdoc-bob-client`](../../ai/bob_client/) (see
+[docs/zdoc-ai-mode.md](../../docs/zdoc-ai-mode.md)):
+
+- per function: `"body"` (verbatim source incl. signature) and `"line_end"`;
+- per module: `"declarations"` — every type/variable/macro statement with
+  its known `names` and verbatim `text` (struct members ride inside their
+  record's text; the AI layer tokenizes `text` to index the rest).
+
+Without the flag the output is byte-identical to before (offline mode
+untouched). Library callers use `cp_parse_file_opts(path, CP_OPT_AI_CONTEXT)`
+and `cp_declarations()`.
+
 ## Why it is fast
 
 - **Bodies are skipped, not parsed.** Most bytes of a source file sit inside

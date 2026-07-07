@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stub provider: sleeps past the test's --ai-timeout — exercises the kill
+# path.
+cat > /dev/null
+sleep 30
+echo '{"nodes":[{"id":"A","kind":"step","text":"too late"}],"edges":[]}'

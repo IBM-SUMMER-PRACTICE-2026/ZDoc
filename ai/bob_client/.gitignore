@@ -1,0 +1,4 @@
+*.o
+zdoc-bob-client
+tests/test_closure
+tests/test_graph

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stub provider: always returns prose — both attempts must fail, the
+# fallback path engages, the run continues.
+cat > /dev/null
+if [ -n "$ZDOC_STUB_COUNT" ]; then
+    echo x >> "$ZDOC_STUB_COUNT"
+fi
+echo "As an AI assistant I would be happy to describe this function in prose."

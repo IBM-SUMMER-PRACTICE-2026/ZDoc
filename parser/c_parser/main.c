@@ -11,7 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ZDOC_C_PARSER_VERSION "0.1.0"
+#define ZDOC_C_PARSER_VERSION "0.2.0"
+
+static unsigned g_opts; /* CP_OPT_* flags from the command line */
 
 static const char *lang_of(const char *path)
 {
@@ -89,7 +91,7 @@ static void jdoc(FILE *o, const cp_doc *d)
 
 static int emit_module(FILE *o, const char *path)
 {
-    cp_result *r = cp_parse_file(path);
+    cp_result *r = cp_parse_file_opts(path, g_opts);
     if (!r || cp_error(r)) {
         fprintf(stderr, "zdoc-c-parser: %s: %s\n", path,
                 r ? cp_error(r) : "out of memory");
@@ -127,9 +129,35 @@ static int emit_module(FILE *o, const char *path)
             fputs(",\"doc\":", o);
             jdoc(o, &s->doc);
         }
+        if (s->body) { /* --ai-context */
+            fprintf(o, ",\"line_end\":%u,\"body\":", s->line_end);
+            jstr(o, s->body);
+        }
         fputc('}', o);
     }
-    fputs("\n]}", o);
+    fputs("\n]", o);
+
+    size_t nd;
+    const cp_declaration *decls = cp_declarations(r, &nd);
+    if (nd) { /* --ai-context */
+        fputs(",\"declarations\":[", o);
+        for (size_t i = 0; i < nd; i++) {
+            const cp_declaration *d = &decls[i];
+            if (i)
+                fputc(',', o);
+            fputs("\n  {\"names\":[", o);
+            for (size_t k = 0; k < d->nnames; k++) {
+                if (k)
+                    fputc(',', o);
+                jstr(o, d->names[k]);
+            }
+            fprintf(o, "],\"line\":%u,\"text\":", d->line);
+            jstr(o, d->text ? d->text : "");
+            fputc('}', o);
+        }
+        fputs("\n]", o);
+    }
+    fputc('}', o);
     cp_result_free(r);
     return 0;
 }
@@ -150,17 +178,24 @@ int main(int argc, char **argv)
         return 0;
     }
     if (strcmp(argv[1], "--help") == 0) {
-        puts("usage: zdoc-c-parser <source files>\n"
+        puts("usage: zdoc-c-parser [--ai-context] <source files>\n"
              "Parses C/C++ sources and prints extracted symbols + doc\n"
-             "comments as JSON on stdout (one \"modules\" entry per file).");
+             "comments as JSON on stdout (one \"modules\" entry per file).\n"
+             "--ai-context additionally emits function bodies and a\n"
+             "declarations array for AI Assisted mode (docs/zdoc-ai-mode.md).");
         return 0;
     }
+    for (int i = 1; i < argc; i++)
+        if (strcmp(argv[i], "--ai-context") == 0)
+            g_opts |= CP_OPT_AI_CONTEXT;
 
-    int rc = 0;
+    int rc = 0, nfiles = 0;
     fputs("{\"zdoc_parser\":\"c\",\"version\":\"" ZDOC_C_PARSER_VERSION
           "\",\"modules\":[\n", stdout);
     for (int i = 1; i < argc; i++) {
-        if (i > 1)
+        if (strcmp(argv[i], "--ai-context") == 0)
+            continue;
+        if (nfiles++)
             fputs(",\n", stdout);
         rc |= emit_module(stdout, argv[i]);
     }

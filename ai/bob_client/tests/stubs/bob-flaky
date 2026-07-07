@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stub provider: garbage on the first call of each pair, valid on the
+# second — exercises the retry path. Needs ZDOC_STUB_COUNT.
+cat > /dev/null
+echo x >> "$ZDOC_STUB_COUNT"
+calls=$(wc -l < "$ZDOC_STUB_COUNT" | tr -d ' ')
+if [ $((calls % 2)) -eq 1 ]; then
+    echo "I'm sorry, I can't do that."
+else
+    printf '%s\n' '{"nodes":[{"id":"A","kind":"step","text":"Entry: fn"},{"id":"B","kind":"return","text":"Return RC=0"}],"edges":[{"from":"A","to":"B"}]}'
+fi

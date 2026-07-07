@@ -122,6 +122,8 @@ struct cp_result {
     arena A;
     cp_symbol *syms;
     size_t n, cap;
+    cp_declaration *decls; /* CP_OPT_AI_CONTEXT only */
+    size_t nd, dcap;
     char *buf;      /* padded private copy of the source */
     const char *err;
     cp_doc filedoc;
@@ -142,6 +144,10 @@ typedef struct {
     uint32_t anchor_line;
     docref doc;              /* pending doc comment awaiting a declaration */
     int depth;               /* decl-scope nesting guard */
+    int record_depth;        /* inside struct/class body: members are not
+                                standalone declarations (the record's full
+                                text already carries them) */
+    unsigned opts;
     cp_result *res;
 } P;
 
@@ -717,6 +723,41 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     }
 }
 
+/* Record a verbatim declaration for AI closure assembly (CP_OPT_AI_CONTEXT).
+ * `names` holds up to `nn` spans; empty spans are skipped. */
+static void add_decl(P *st, const span *names, size_t nn, const char *ts,
+                     const char *te, uint32_t line)
+{
+    if (!(st->opts & CP_OPT_AI_CONTEXT) || te <= ts || st->record_depth > 0)
+        return;
+    cp_result *r = st->res;
+    if (r->nd == r->dcap) {
+        size_t c = r->dcap ? r->dcap * 2 : 32;
+        cp_declaration *nd =
+            (cp_declaration *)realloc(r->decls, c * sizeof *nd);
+        if (!nd)
+            return;
+        r->decls = nd;
+        r->dcap = c;
+    }
+    cp_declaration *d = &r->decls[r->nd];
+    memset(d, 0, sizeof *d);
+    const char **nv = (const char **)aalloc(&r->A, (nn ? nn : 1) * sizeof *nv);
+    if (!nv)
+        return;
+    size_t o = 0;
+    for (size_t i = 0; i < nn; i++)
+        if (SPAN_OK(names[i]))
+            nv[o++] = adup(&r->A, names[i].s, (size_t)(names[i].e - names[i].s));
+    if (o == 0)
+        return; /* nothing nameable: not worth indexing */
+    d->names = nv;
+    d->nnames = o;
+    d->text = adup(&r->A, ts, (size_t)(te - ts));
+    d->line = line;
+    r->nd++;
+}
+
 /* --------------------------------------------------------- decl scanning */
 
 static void parse_decl_scope(P *st, int nested);
@@ -774,6 +815,14 @@ static void handle_pp(P *st)
          * (this also drops include guards) */
         if (SPAN_OK(nm) && (fnlike || doc.valid))
             emit(st, CP_SYM_MACRO, nm, hash, sig_end, line, &doc);
+        /* AI context: every #define is a declaration (replacement text
+         * gives RC values etc. their meaning); capped for sanity */
+        if (SPAN_OK(nm)) {
+            const char *de = st->p;
+            if (de - hash > 500)
+                de = hash + 500;
+            add_decl(st, &nm, 1, hash, de, line);
+        }
     } else {
         if (wn == 7 && memcmp(w, "include", 7) == 0)
             st->doc.valid = 0;
@@ -980,6 +1029,29 @@ static void parse_statement(P *st)
                         emit(st, CP_SYM_VARIABLE, v, stmt_start, tp, line, &doc);
                 }
             }
+            /* AI context: every non-prototype statement ending here is a
+             * declaration worth indexing (typedef/struct/enum/using with
+             * their bodies, plus variables — documented or not) */
+            if ((st->opts & CP_OPT_AI_CONTEXT) &&
+                !(!emitted && !kw_typedef && !kw_using && funcish && !has_init)) {
+                span nms[4];
+                size_t nn = 0;
+                if (SPAN_OK(tag_name))
+                    nms[nn++] = tag_name;
+                if (kw_typedef) {
+                    span tn = (funcish && SPAN_OK(name)) ? name
+                              : SPAN_OK(td_inner)        ? td_inner
+                                                         : last_ident;
+                    if (SPAN_OK(tn) && !is_kw(tn))
+                        nms[nn++] = tn;
+                } else {
+                    span v = SPAN_OK(var_ident) ? var_ident : last_ident;
+                    if (SPAN_OK(v) && !is_kw(v) &&
+                        !(nn && v.s == nms[0].s && v.e == nms[0].e))
+                        nms[nn++] = v;
+                }
+                add_decl(st, nms, nn, stmt_start, tp + 1, line);
+            }
             return;
 
         case '{':
@@ -1013,18 +1085,27 @@ static void parse_statement(P *st)
             }
             if (funcish) {
                 const char *se = sig_end_override ? sig_end_override : tp;
+                size_t before = st->res->n;
                 emit(st, CP_SYM_FUNCTION, name, stmt_start, se, line, &doc);
                 st->p = tp;
                 skip_body(st);
+                if ((st->opts & CP_OPT_AI_CONTEXT) && st->res->n > before) {
+                    cp_symbol *sym = &st->res->syms[st->res->n - 1];
+                    sym->body = adup(&st->res->A, stmt_start,
+                                     (size_t)(st->p - stmt_start));
+                    sym->line_end = line_at(st, st->p);
+                }
                 return;
             }
             if (kw_record) {
                 if (SPAN_OK(tag_name))
                     emit(st, CP_SYM_TYPE, tag_name, stmt_start, tp, line, &doc);
                 emitted = 1;
-                if (st->depth < 128)
+                if (st->depth < 128) {
+                    st->record_depth++;
                     parse_decl_scope(st, 1); /* members / methods */
-                else {
+                    st->record_depth--;
+                } else {
                     st->p = tp;
                     skip_body(st);
                 }
@@ -1110,7 +1191,7 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
-cp_result *cp_parse_buffer(const char *src, size_t len)
+cp_result *cp_parse_buffer_opts(const char *src, size_t len, unsigned opts)
 {
     cp_result *r = (cp_result *)calloc(1, sizeof *r);
     if (!r)
@@ -1132,12 +1213,18 @@ cp_result *cp_parse_buffer(const char *src, size_t len)
         st.p += 3; /* UTF-8 BOM */
     st.anchor = st.p;
     st.anchor_line = 1;
+    st.opts = opts;
     st.res = r;
     parse_decl_scope(&st, 0);
     return r;
 }
 
-cp_result *cp_parse_file(const char *path)
+cp_result *cp_parse_buffer(const char *src, size_t len)
+{
+    return cp_parse_buffer_opts(src, len, 0);
+}
+
+cp_result *cp_parse_file_opts(const char *path, unsigned opts)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -1166,9 +1253,14 @@ cp_result *cp_parse_file(const char *path)
     }
     size_t rd = fread(buf, 1, (size_t)sz, f);
     fclose(f);
-    cp_result *r = cp_parse_buffer(buf, rd);
+    cp_result *r = cp_parse_buffer_opts(buf, rd, opts);
     free(buf);
     return r;
+}
+
+cp_result *cp_parse_file(const char *path)
+{
+    return cp_parse_file_opts(path, 0);
 }
 
 const cp_symbol *cp_symbols(const cp_result *r, size_t *count)
@@ -1176,6 +1268,13 @@ const cp_symbol *cp_symbols(const cp_result *r, size_t *count)
     if (count)
         *count = r ? r->n : 0;
     return r ? r->syms : NULL;
+}
+
+const cp_declaration *cp_declarations(const cp_result *r, size_t *count)
+{
+    if (count)
+        *count = r ? r->nd : 0;
+    return r ? r->decls : NULL;
 }
 
 int cp_module_doc(const cp_result *r, cp_doc *out)
@@ -1209,6 +1308,7 @@ void cp_result_free(cp_result *r)
     if (!r)
         return;
     free(r->syms);
+    free(r->decls);
     free(r->buf);
     arena_free(&r->A);
     free(r);

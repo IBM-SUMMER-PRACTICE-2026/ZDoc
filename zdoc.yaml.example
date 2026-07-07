@@ -24,3 +24,15 @@ exclude:
 # AI Assisted mode (mode: ai) — Bob CLI integration.
 bob_cli: bob
 bob_args: "--session default"
+
+# AI mode tuning (see docs/zdoc-ai-mode.md). All optional.
+ai:
+  # Provider command template; snippet is delivered on stdin, {lang} is
+  # substituted. Overrides bob_cli/bob_args when set.
+  # command: "bob explain --diagram --brief --lang {lang}"
+  jobs: 4                # concurrent provider calls
+  timeout: 60            # seconds per call
+  cache: true            # content-addressed diagram cache
+  # cache_dir: ~/.cache/zdoc
+  max_context_chars: 4000  # closure character budget per symbol
+  transitive_depth: 1      # declaration closure depth

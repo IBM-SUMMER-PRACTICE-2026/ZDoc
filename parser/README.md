@@ -47,6 +47,19 @@ language-agnostic. `module_doc` and each symbol's `doc` are optional.
 }
 ```
 
+### AI context extension (`--ai-context`)
+
+AI Assisted mode needs more than signatures. With the `--ai-context` flag a
+parser additionally emits (without the flag, output must stay byte-identical):
+
+- per `function`/`procedure`/`entry` symbol: `"body"` (verbatim source of the
+  executable body) and `"line_end"`;
+- per module: a `"declarations"` array —
+  `{ "names": [...], "line": n, "text": "verbatim declaration" }` — where
+  `names` lists **every** identifier the declaration introduces (struct tag,
+  typedef name, members, PL/X BASED pointer, HLASM DSECT fields/EQU labels,
+  Pascal record fields). See [`docs/zdoc-ai-mode.md`](../docs/zdoc-ai-mode.md).
+
 On a per-file parse error, still emit that file's entry with `"error": true` and an
 empty `symbols` array, and exit non-zero — the pipeline should degrade gracefully.
 

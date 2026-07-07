@@ -1,0 +1,18 @@
+#!/bin/sh
+# Stub provider: valid graph wrapped in prose + fence — must be repaired,
+# not retried.
+cat > /dev/null
+if [ -n "$ZDOC_STUB_COUNT" ]; then
+    echo x >> "$ZDOC_STUB_COUNT"
+fi
+cat <<'EOF'
+Sure! Here's your diagram:
+
+```json
+{"nodes":[{"id":"A","kind":"step","text":"Entry: fn"},
+{"id":"B","kind":"return","text":"Return RC=0"}],
+"edges":[{"from":"A","to":"B"}]}
+```
+
+Hope this helps!
+EOF

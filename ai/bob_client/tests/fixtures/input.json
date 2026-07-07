@@ -1,0 +1,29 @@
+{"zdoc_parser":"c","version":"0.1.0","modules":[
+  {"file":"fixture.c","language":"c",
+   "declarations":[
+     {"names":["node_t","node","key","next"],"line":1,
+      "text":"typedef struct node { char key[16]; struct node *next; } node_t;"},
+     {"names":["g_head"],"line":2,"text":"extern node_t *g_head;"},
+     {"names":["RC_OK"],"line":3,"text":"#define RC_OK 0"},
+     {"names":["RC_NOTFOUND"],"line":4,"text":"#define RC_NOTFOUND 4"},
+     {"names":["unused_thing"],"line":5,"text":"extern int unused_thing;"}
+   ],
+   "symbols":[
+     {"kind":"prototype","line":7,"name":"audit_removal",
+      "signature":"void audit_removal(const char *key)",
+      "doc":{"brief":"Record a removal in the audit trail."}},
+     {"kind":"function","line":10,"name":"remove_key",
+      "signature":"int remove_key(const char *key)",
+      "line_end":24,
+      "doc":{"brief":"Remove the first node whose key matches, if any."},
+      "body":"int remove_key(const char *key) {\n    node_t *cur = g_head, *prev = NULL;\n    while (cur != NULL) {\n        if (strcmp(cur->key, key) == 0) {\n            if (prev == NULL) g_head = cur->next; else prev->next = cur->next;\n            free(cur);\n            audit_removal(key);\n            return RC_OK;\n        }\n        prev = cur; cur = cur->next;\n    }\n    return RC_NOTFOUND;\n}"},
+     {"kind":"function","line":26,"name":"count_keys",
+      "signature":"int count_keys(void)",
+      "line_end":33,
+      "body":"int count_keys(void) {\n    int n = 0;\n    for (node_t *c = g_head; c; c = c->next) n++;\n    return n;\n}"},
+     {"kind":"function","line":35,"name":"noop",
+      "signature":"void noop(void)",
+      "line_end":36,
+      "body":"void noop(void) { }"}
+   ]}
+]}
