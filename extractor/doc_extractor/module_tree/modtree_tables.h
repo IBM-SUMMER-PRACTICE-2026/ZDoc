@@ -65,5 +65,5 @@ int modtree_file_path(const modtree_dir_table_t *dirs, const modtree_file_table_
 
 /* Method that returns how many files there are to parse and */
 int number_of_files(const modtree_file_table_t* t);
-
+    
 #endif
