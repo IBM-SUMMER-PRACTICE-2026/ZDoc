@@ -1,0 +1,49 @@
+{
+  "dirs": [
+    { "name": "src", "parent_index": -1 },
+    { "name": "util", "parent_index": 0 }
+  ],
+  "files": [
+    {
+      "name": "Full.java",
+      "parent_dir_index": 0,
+      "language": "java",
+      "symbols": [
+        {
+          "kind": "function",
+          "line": 10,
+          "name": "doStuff",
+          "signature": "void doStuff(int x, String y)",
+          "doc": {
+            "brief": "Does a full example of stuff",
+            "params": [
+              { "name": "x", "desc": "the x value" },
+              { "name": "y", "desc": "the y value" }
+            ],
+            "returns": "nothing useful",
+            "notes": "throws nothing"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Minimal.java",
+      "parent_dir_index": 1,
+      "language": "java",
+      "symbols": [
+        {
+          "kind": "function",
+          "line": 3,
+          "name": "bareMethod",
+          "signature": "void bareMethod()"
+        }
+      ]
+    },
+    {
+      "name": "Empty.java",
+      "parent_dir_index": 0,
+      "language": "java",
+      "symbols": []
+    }
+  ]
+}

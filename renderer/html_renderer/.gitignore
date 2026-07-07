@@ -1,0 +1,7 @@
+# Built binary (root .gitignore backstops this via zdoc-*-renderer / *.exe)
+zdoc-html-renderer
+zdoc-html-renderer.exe
+
+# Local test render output
+out/
+out2/
