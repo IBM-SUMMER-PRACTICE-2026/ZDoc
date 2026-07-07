@@ -129,3 +129,9 @@ int modtree_file_path(const modtree_dir_table_t* dirs, const modtree_file_table_
     if (written < 0 || (size_t)written >= out_size) return -1;
     return 0;
 }
+
+int numbres_of_files(const modtree_file_table_t* t) {
+    if (!t) return -1;
+    
+    return t->count;
+}
