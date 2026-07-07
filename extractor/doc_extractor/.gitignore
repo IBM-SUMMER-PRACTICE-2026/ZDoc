@@ -1,0 +1,4 @@
+*.o
+zdoc-doc-extractor
+out.json
+tests/
