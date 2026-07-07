@@ -174,7 +174,10 @@ int run_parser(const LangEntry *lang, const char *parser_dir,
     else snprintf(bin, sizeof bin, "%s", lang->parser_bin);
 
     char cmd[1200];
-    snprintf(cmd, sizeof cmd, "\"%s\" \"%s\"", bin, file_path);
+    /* cmd.exe strips the first and last quote from the /c command string, so
+     * with both the binary and the file quoted it must be wrapped in one
+     * extra outer pair or the program name keeps a stray embedded quote. */
+    snprintf(cmd, sizeof cmd, "\"\"%s\" \"%s\"\"", bin, file_path);
 
     FILE *pipe = _popen(cmd, "r");
     if(!pipe) return 0;
