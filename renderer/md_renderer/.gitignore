@@ -1,0 +1,4 @@
+*.o
+zdoc-md-renderer
+zdoc-out-test/
+tests/
