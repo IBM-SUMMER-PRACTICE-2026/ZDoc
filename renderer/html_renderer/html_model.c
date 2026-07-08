@@ -36,6 +36,25 @@ static void field_doc(JParser *j, const char *key, void *ctx) {
         sym->returns = jparse_string(j);
     } else if(strcmp(key, "notes") == 0) {
         sym->notes = jparse_string(j);
+    } else if(strcmp(key, "diagram") == 0) {
+        sym->diagram = jparse_string(j);
+    } else if(strcmp(key, "refs") == 0) {
+        if(!jeat(j, '[')) return;
+        size_t cap = 0;
+        if(jpeek(j) != ']') {
+            for(;;) {
+                if(sym->ref_count == cap) {
+                    cap = cap ? cap * 2 : 4;
+                    sym->refs = xrealloc(sym->refs, cap * sizeof(char *));
+                }
+                sym->refs[sym->ref_count] = jparse_string(j);
+                if(!j->ok) return;
+                sym->ref_count++;
+                if(jpeek(j) == ',') { jeat(j, ','); continue; }
+                break;
+            }
+        }
+        jeat(j, ']');
     } else if(strcmp(key, "params") == 0) {
         if(!jeat(j, '[')) return;
         //Grow-by-doubling array; cap is only needed while parsing
@@ -202,6 +221,9 @@ static void free_symbol(HtmlSymbol *s) {
     free(s->brief);
     free(s->returns);
     free(s->notes);
+    free(s->diagram);
+    for(size_t k = 0; k < s->ref_count; k++) free(s->refs[k]);
+    free(s->refs);
     for(size_t k = 0; k < s->param_count; k++) {
         free(s->params[k].name);
         free(s->params[k].desc);

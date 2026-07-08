@@ -21,7 +21,9 @@
               { "name": "y", "desc": "the y value" }
             ],
             "returns": "nothing useful",
-            "notes": "throws nothing"
+            "notes": "throws nothing",
+            "diagram": "flowchart TD\n    A[Entry: doStuff] --> B{x valid?}\n    B -- No --> C[Return]\n    B -- Yes --> D[Process y]\n    D --> C",
+            "refs": ["bareMethod"]
           }
         }
       ]
