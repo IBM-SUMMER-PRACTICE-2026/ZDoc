@@ -2,7 +2,9 @@
 #include "../extractor/doc_extractor/module_tree/fs_walk.h"
 #include "../extractor/doc_extractor/module_tree/modtree_tables.h"
 #include "../parser/plx_parser/plx_parser.h"
+#include "../parser/parser_interface.h"
 #include <stdio.h>
+#include <string.h>
 
 const char* root_path;
 size_t extension_count;
@@ -50,11 +52,19 @@ int main(int argc, char* argv[]) {
     char* path = malloc(sizeof(char) * 4096);
 
     for(int i = 0; i < files_count; i++) {
+        enum Language lang = language_from_name(global_file_table.files[i].name);
+        if ((int)lang < 0) {
+            continue;
+        }
+
         modtree_file_path(&global_dir_table, &global_file_table, i, path, 4096);
-        Module* finished = plx_parse_file(path);
-        int curr_finished_files = finished_files;
-        global_parsed_files_arry[curr_finished_files] = *finished;
-        finished_files++;
+
+        Module* finished = parse_file(lang, path);
+        if (finished == NULL) {
+            continue;
+        }
+
+        global_parsed_files_arry[finished_files++] = *finished;
     }
 
     free(path);

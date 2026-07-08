@@ -37,15 +37,18 @@ endif
 SHARED  = ../parser/shared
 MODTREE = ../extractor/doc_extractor/module_tree
 PLX     = ../parser/plx_parser
+PARSER  = ../parser
 
 SRCS = zdoc_deamon.c \
+       $(PARSER)/parser_interface.c \
        $(SHARED)/parser_shared.c \
        $(MODTREE)/fs_walk.c \
        $(MODTREE)/modtree_table.c \
        $(PLX)/plx_parser.c \
        $(PLX)/helpers.c
 
-HDRS = $(SHARED)/parser_shared.h \
+HDRS = $(PARSER)/parser_interface.h \
+       $(SHARED)/parser_shared.h \
        $(MODTREE)/fs_walk.h \
        $(MODTREE)/modtree_tables.h \
        $(PLX)/plx_parser.h \
