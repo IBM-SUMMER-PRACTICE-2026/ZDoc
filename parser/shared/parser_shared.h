@@ -7,6 +7,13 @@
 #include "../../extractor/doc_extractor/module_tree/modtree_tables.h"
 
 
+extern _Atomic int finished_files;
+extern modtree_dir_table_t global_dir_table;
+extern modtree_file_table_t global_file_table;
+extern int files_count;
+extern Module* global_parsed_files_arry;
+
+
 // Function input parameter
 typedef struct {
     char *name;
@@ -36,13 +43,6 @@ typedef struct {
     int symbolCount;
     int symbolCap;
 } Module;
-
-
-extern _Atomic int finished_files;
-extern modtree_dir_table_t global_dir_table;
-extern modtree_file_table_t global_file_table;
-extern int files_count;
-extern Module* global_parsed_files_arry;
 
 /* Function that initializes the files count,
     getting it from the interface that modtree_tables.h provides
