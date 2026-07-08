@@ -1,9 +1,8 @@
 /*
  * zdoc-c-parser — CLI driver for the ZDoc C/C++ parser.
  *
- * Parses the given source files and prints one JSON document on stdout:
- *   { "zdoc_parser": "c", "modules": [ { file, language, symbols... } ] }
- * Downstream ZDoc stages (extractor, renderers, bob_client) consume this.
+ * Parses the given source files and prints the extracted symbols in a
+ * human-readable layout on stdout (mirroring the plx/java parser demos).
  */
 #include "c_parser.h"
 
@@ -26,65 +25,27 @@ static const char *lang_of(const char *path)
     return "c";
 }
 
-static void jstr(FILE *o, const char *s)
+/* Render a possibly-NULL string as "(null)" so every field prints. */
+static const char *or_null(const char *s)
 {
-    fputc('"', o);
-    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
-        switch (*p) {
-        case '"':  fputs("\\\"", o); break;
-        case '\\': fputs("\\\\", o); break;
-        case '\n': fputs("\\n", o); break;
-        case '\r': fputs("\\r", o); break;
-        case '\t': fputs("\\t", o); break;
-        default:
-            if (*p < 0x20)
-                fprintf(o, "\\u%04x", *p);
-            else
-                fputc(*p, o);
-        }
-    }
-    fputc('"', o);
+    return s ? s : "(null)";
 }
 
-static void jdoc(FILE *o, const cp_doc *d)
+/* Print a doc block's fields (brief/returns/notes/params) indented. */
+static void print_doc(FILE *o, const cp_doc *d)
 {
-    fputs("{", o);
-    int first = 1;
-    if (d->brief) {
-        fputs("\"brief\":", o);
-        jstr(o, d->brief);
-        first = 0;
+    fprintf(o, "    Brief      : %s\n", or_null(d->brief));
+    fprintf(o, "    Returns    : %s\n", or_null(d->returns));
+    fprintf(o, "    Notes      : %s\n", or_null(d->notes));
+    fprintf(o, "    Params (%zu) :", d->nparams);
+    if (d->nparams == 0) {
+        fputs(" (none)\n", o);
+    } else {
+        fputc('\n', o);
+        for (size_t i = 0; i < d->nparams; i++)
+            fprintf(o, "      - %s - %s\n", or_null(d->params[i].name),
+                    or_null(d->params[i].desc));
     }
-    if (d->nparams) {
-        if (!first)
-            fputc(',', o);
-        fputs("\"params\":[", o);
-        for (size_t i = 0; i < d->nparams; i++) {
-            if (i)
-                fputc(',', o);
-            fputs("{\"name\":", o);
-            jstr(o, d->params[i].name ? d->params[i].name : "");
-            fputs(",\"desc\":", o);
-            jstr(o, d->params[i].desc ? d->params[i].desc : "");
-            fputc('}', o);
-        }
-        fputc(']', o);
-        first = 0;
-    }
-    if (d->returns) {
-        if (!first)
-            fputc(',', o);
-        fputs("\"returns\":", o);
-        jstr(o, d->returns);
-        first = 0;
-    }
-    if (d->notes) {
-        if (!first)
-            fputc(',', o);
-        fputs("\"notes\":", o);
-        jstr(o, d->notes);
-    }
-    fputc('}', o);
 }
 
 static int emit_module(FILE *o, const char *path)
@@ -94,42 +55,38 @@ static int emit_module(FILE *o, const char *path)
         fprintf(stderr, "zdoc-c-parser: %s: %s\n", path,
                 r ? cp_error(r) : "out of memory");
         cp_result_free(r);
-        fputs("{\"file\":", o);
-        jstr(o, path);
-        fputs(",\"error\":true,\"symbols\":[]}", o);
         return 1;
     }
 
-    fputs("{\"file\":", o);
-    jstr(o, path);
-    fprintf(o, ",\"language\":\"%s\"", lang_of(path));
+    size_t n;
+    const cp_symbol *syms = cp_symbols(r, &n);
+
+    fprintf(o, "Module: %s (language: %s)\n", path, lang_of(path));
+    fprintf(o, "Documented symbols: %zu\n", n);
 
     cp_doc md;
     if (cp_module_doc(r, &md)) {
-        fputs(",\"module_doc\":", o);
-        jdoc(o, &md);
+        fputs("\nModule doc:\n", o);
+        print_doc(o, &md);
     }
 
-    fputs(",\"symbols\":[", o);
-    size_t n;
-    const cp_symbol *syms = cp_symbols(r, &n);
     for (size_t i = 0; i < n; i++) {
         const cp_symbol *s = &syms[i];
-        if (i)
-            fputc(',', o);
-        fputs("\n  {\"kind\":\"", o);
-        fputs(cp_symbol_kind_name(s->kind), o);
-        fprintf(o, "\",\"line\":%u,\"name\":", s->line);
-        jstr(o, s->name ? s->name : "");
-        fputs(",\"signature\":", o);
-        jstr(o, s->signature ? s->signature : "");
+        fprintf(o, "\n[%zu] %s\n", i + 1, or_null(s->name));
+        fprintf(o, "    Name       : %s\n", or_null(s->name));
+        fprintf(o, "    Signature  : %s\n", or_null(s->signature));
+        fprintf(o, "    Line       : %u\n", s->line);
+        fprintf(o, "    Type       : %s\n", cp_symbol_kind_name(s->kind));
         if (s->has_doc) {
-            fputs(",\"doc\":", o);
-            jdoc(o, &s->doc);
+            print_doc(o, &s->doc);
+        } else {
+            fputs("    Brief      : (null)\n", o);
+            fputs("    Returns    : (null)\n", o);
+            fputs("    Notes      : (null)\n", o);
+            fputs("    Params (0) : (none)\n", o);
         }
-        fputc('}', o);
     }
-    fputs("\n]}", o);
+
     cp_result_free(r);
     return 0;
 }
@@ -157,13 +114,10 @@ int main(int argc, char **argv)
     }
 
     int rc = 0;
-    fputs("{\"zdoc_parser\":\"c\",\"version\":\"" ZDOC_C_PARSER_VERSION
-          "\",\"modules\":[\n", stdout);
     for (int i = 1; i < argc; i++) {
         if (i > 1)
-            fputs(",\n", stdout);
+            fputc('\n', stdout);
         rc |= emit_module(stdout, argv[i]);
     }
-    fputs("\n]}\n", stdout);
     return rc;
 }
