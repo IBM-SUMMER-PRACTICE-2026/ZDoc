@@ -15,9 +15,13 @@
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
+/* Windows callers pass backslash paths (PowerShell tab completion emits
+  them), and CreateDirectory accepts either separator. */
+#define IS_SEP(c) ((c) == '/' || (c) == '\\')
 #else
 #include <sys/stat.h>
 #define MKDIR(path) mkdir(path, 0755)
+#define IS_SEP(c) ((c) == '/')
 #endif
 
 /* Best effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -28,13 +32,14 @@ static void mkdir_p(const char *dir) {
     snprintf(tmp, sizeof tmp, "%s", dir);
     size_t len = strlen(tmp);
     if(len == 0) return;
-    if(tmp[len - 1] == '/') tmp[len - 1] = '\0';
+    if(IS_SEP(tmp[len - 1])) tmp[len - 1] = '\0';
 
     for(char *p = tmp + 1; *p; p++) {
-        if(*p == '/') {
+        if(IS_SEP(*p)) {
+            char sep = *p;
             *p = '\0';
             MKDIR(tmp);
-            *p = '/';
+            *p = sep;
         }
     }
     MKDIR(tmp);
