@@ -11,7 +11,7 @@ extern _Atomic int finished_files;
 extern modtree_dir_table_t global_dir_table;
 extern modtree_file_table_t global_file_table;
 extern int files_count;
-extern Module* global_parsed_files_arry;
+extern struct Module* global_parsed_files_arry;
 
 
 // Function input parameter
@@ -37,7 +37,7 @@ typedef struct {
 
 
 // Module - the information for each file and the array of symbols for it.
-typedef struct {
+typedef struct Module {
     char *filename;
     Symbol *symbols;
     int symbolCount;

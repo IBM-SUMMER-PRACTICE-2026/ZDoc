@@ -4,7 +4,7 @@ _Atomic int finished_files = 0;
 modtree_dir_table_t global_dir_table;
 modtree_file_table_t global_file_table;
 int files_count = 0;
-Module* global_parsed_files_arry = NULL;
+struct Module* global_parsed_files_arry = NULL;
 
 int init_resources() {
     int count = number_of_files(&global_file_table);
