@@ -1,7 +1,8 @@
 /*
   Walks a parsed HtmlModel and writes it out as a single self-contained
   index.html: nested <details>/<summary> nodes for directories and files,
-  with per-symbol sections (signature, brief, parameters, returns, notes).
+  with per-symbol sections (signature, brief, parameters, returns, notes,
+  block diagram, cross-references).
   No JSON involved here - see html_model.c for that.
  */
 #include "html_renderer.h"
@@ -116,7 +117,15 @@ static void adjacency_free(adjacency_t *a) {
 /*Renders a single symbol's documentation section. 
 The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
 static void render_symbol(FILE *o, const HtmlSymbol *s, const char *language) {
-    fputs("<details class=\"sym\"><summary><code>", o);
+    fputs("<details class=\"sym\"", o);
+    if(s->name && s->name[0]) {
+        /* Anchor target for cross-reference links; refs address symbols by
+          name, so duplicate names resolve to their first occurrence. */
+        fputs(" id=\"sym-", o);
+        put_escaped(o, s->name);
+        fputc('"', o);
+    }
+    fputs("><summary><code>", o);
     put_escaped(o, s->name ? s->name : "(unnamed)");
     fputs("</code>", o);
     if(s->brief && s->brief[0]) {
@@ -157,6 +166,28 @@ static void render_symbol(FILE *o, const HtmlSymbol *s, const char *language) {
     if(s->notes && s->notes[0]) {
         fputs("<p class=\"h\">Notes</p>\n<p>", o);
         put_escaped(o, s->notes);
+        fputs("</p>\n", o);
+    }
+    if(s->diagram && s->diagram[0]) {
+        /* Mermaid renders <pre class="mermaid"> in place; without JS the
+          global <noscript> rules hide it and show this note instead (see
+          docs/ZDOC.md -> Limitations). */
+        fputs("<p class=\"h\">Block Diagram</p>\n"
+              "<noscript><p class=\"empty\">Block diagram omitted — requires JavaScript.</p></noscript>\n"
+              "<pre class=\"mermaid\">", o);
+        put_escaped(o, s->diagram);
+        fputs("</pre>\n", o);
+    }
+    if(s->ref_count > 0) {
+        fputs("<p class=\"h\">Cross-references</p>\n<p class=\"xrefs\">", o);
+        for(size_t i = 0; i < s->ref_count; i++) {
+            if(i) fputs(", ", o);
+            fputs("<a href=\"#sym-", o);
+            put_escaped(o, s->refs[i]);
+            fputs("\"><code>", o);
+            put_escaped(o, s->refs[i]);
+            fputs("</code></a>", o);
+        }
         fputs("</p>\n", o);
     }
     fputs("</details>\n", o);
@@ -209,8 +240,34 @@ static const char CSS[] =
     "pre{background:#f6f6f6;padding:.5rem;overflow-x:auto;margin:.2rem 0}\n"
     "table{border-collapse:collapse;margin:.2rem 0}\n"
     "th,td{border:1px solid #ccc;padding:.25rem .6rem;text-align:left}\n"
-    "th{background:#f6f6f6}\n";
-//Renders the whole model as one self-contained out_dir/index.html (embedded CSS, no external dependencies).
+    "th{background:#f6f6f6}\n"
+    "pre.mermaid{background:#fff}\n"
+    ".xrefs a{color:#0645ad}\n";
+
+/* Opens every <details> ancestor of the element the URL fragment points at,
+  so cross-reference links land on a visible symbol. Embedded, no external
+  dependencies. */
+static const char REVEAL_JS[] =
+    "(function(){function reveal(){var h=location.hash;if(!h)return;\n"
+    "var el=document.getElementById(decodeURIComponent(h.slice(1)));if(!el)return;\n"
+    "for(var d=el;d;d=d.parentElement)if(d.tagName==='DETAILS')d.open=true;\n"
+    "el.scrollIntoView();}\n"
+    "window.addEventListener('hashchange',reveal);reveal();})();\n";
+
+/* Mermaid runs per-diagram when its enclosing <details> is opened - rendering
+  inside a closed (hidden) node would come out zero-sized. AI Assisted mode
+  already requires network access (docs/ZDOC.md -> Limitations), so the CDN
+  load only happens for models that carry diagrams; offline output stays
+  dependency-free. */
+static const char MERMAID_JS[] =
+    "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
+    "mermaid.initialize({startOnLoad:false});\n"
+    "function run(root){mermaid.run({nodes:root.querySelectorAll('pre.mermaid:not([data-processed])')});}\n"
+    "document.querySelectorAll('details').forEach(function(d){\n"
+    "d.addEventListener('toggle',function(){if(d.open)run(d);});});\n"
+    "run(document);\n";
+
+//Renders the whole model as one self-contained out_dir/index.html (embedded CSS; Mermaid JS is pulled in only when the model carries block diagrams).
 int html_render(const HtmlModel *m, const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
@@ -222,12 +279,24 @@ int html_render(const HtmlModel *m, const char *out_dir, const char *title) {
     adjacency_t a;
     adjacency_build(&a, m);
 
+    int has_diagram = 0, has_refs = 0;
+    for(size_t i = 0; i < m->file_count && !(has_diagram && has_refs); i++) {
+        for(size_t k = 0; k < m->files[i].symbol_count; k++) {
+            const HtmlSymbol *s = &m->files[i].symbols[k];
+            if(s->diagram && s->diagram[0]) has_diagram = 1;
+            if(s->ref_count > 0) has_refs = 1;
+        }
+    }
+
     const char *t = (title && title[0]) ? title : "Documentation";
     fputs("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>", o);
     put_escaped(o, t);
     fputs("</title>\n<style>\n", o);
     fputs(CSS, o);
-    fputs("</style>\n</head>\n<body>\n<h1>", o);
+    fputs("</style>\n", o);
+    if(has_diagram)
+        fputs("<noscript><style>pre.mermaid{display:none}</style></noscript>\n", o);
+    fputs("</head>\n<body>\n<h1>", o);
     put_escaped(o, t);
     fputs("</h1>\n<ul class=\"tree\">\n", o);
 
@@ -236,7 +305,18 @@ int html_render(const HtmlModel *m, const char *out_dir, const char *title) {
     for(int f = a.file_root; f != -1; f = a.file_sib[f])
         render_file(o, m, (size_t)f);
 
-    fputs("</ul>\n</body>\n</html>\n", o);
+    fputs("</ul>\n", o);
+    if(has_refs) {
+        fputs("<script>\n", o);
+        fputs(REVEAL_JS, o);
+        fputs("</script>\n", o);
+    }
+    if(has_diagram) {
+        fputs("<script type=\"module\">\n", o);
+        fputs(MERMAID_JS, o);
+        fputs("</script>\n", o);
+    }
+    fputs("</body>\n</html>\n", o);
 
     adjacency_free(&a);
     int rc = ferror(o) ? -1 : 0;
