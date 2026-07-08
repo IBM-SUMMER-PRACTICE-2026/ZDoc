@@ -1,0 +1,217 @@
+ /*** Start of Specifications ****************************************/
+ /*                                                                  */
+ /*01* Descriptive Name:  TUES Summer Practices                      */
+ /*                                                                  */
+ /*01* Macro Name:  student_grades                                   */
+ /*                                                                  */
+ /*01* External Classification: NONE                                 */
+ /*01* End of External Classification                                */
+ /*                                                                  */
+ /*01* Component:  Tues Students System                              */
+ /*                                                                  */
+ /*01* Function:                                                     */
+ /*02* Provides Generally Useful Methods and Constants               */
+ /*                                                                  */
+ /*01* Method of Access:                                             */
+ /*02*  PLX:                                                         */
+ /*         % INCLUDE SYSLIB(student_grades);                        */
+ /*                                                                  */
+ /*01* Change Activity:                                              */
+ /* $MAC(student_grades),COMP(TSS): Useful Methods and Constants     */
+ /* $L0=feature1 version1 date1 initials1 : Add grades and length    */
+ /*                                         constants                */
+ /* $L1=feature2 version2 date2 initials2 : Add status bits and      */
+ /*                                         bits calculations        */
+ /* $00=fix1     version1 date3 initials3 : Fix bitwise operations   */
+ /* $L2=feature  version2 date4 initials1 : Add students struct and  */
+ /*                                         return codes             */
+ /*                                                                  */
+ /*** End of Specifications ******************************************/
+ /*** Change Summary *************************************************/
+ /*                                                                  */
+ /* CHANGE DESCRIPTIONS:                                             */
+ /* --------------------                                             */
+ /* A - Add                                                          */
+ /* D - Delete                                                       */
+ /* C - Change                                                       */
+ /* M - Move                                                         */
+ /* ---------------------------------------------------------------- */
+ /* A - Add grades and max length constants. Add procedure for   @L0A*/
+ /*     assgning a grade, based on points                        @L0A*/
+ /* A - Add constants for bitwise operations and utilities       @L1A*/
+ /*     for modifying bits using masks                           @L1A*/
+ /* C - Fix incorrect calculations with bits                     @00A*/
+ /* A - Add additional struct for students and return codes      @L2A*/
+ /*     for procedures                                           @L2A*/
+ /*                                                                  */
+ /********************************************************************/
+ /* Constants for grade boundaries                               @L0A*/
+ DCL GRADE_A        FIXED(31) CONSTANT(90)   /* Highest grade    @L0A*/
+    ,GRADE_B        FIXED(31) CONSTANT(80)   /*                  @L0A*/
+    ,GRADE_C        FIXED(31) CONSTANT(70)   /*                  @L0A*/
+    ,GRADE_D        FIXED(31) CONSTANT(60);  /* Lowest grade     @L0A*/
+
+ /* Maximum number of students and subjects                      @L0A*/
+ DCL MAX_STUDENTS   FIXED(31) CONSTANT(50);  /* Maximum number of
+                                                   students      @L0A*/
+ DCL MAX_SUBJECTS   FIXED(31) CONSTANT(5);   /* Maximum number of 
+                                                   subjects      @L0A*/
+ DCL NAME_LENGTH    FIXED(31) CONSTANT(30);  /* Maximum length for 
+                                                   name length   @L0A*/
+
+ /* Student status flags (bit operations)                        @L1A*/
+ DCL  STATUS_ACTIVE     BIT(8) CONSTANT('01'B), /* Active mask   @L1A*/
+      STATUS_HONORS     BIT(8) CONSTANT('02'B), /* Honors mask   @L1A*/
+      STATUS_WARNING    BIT(8) CONSTANT('04'B), /* Warning mask  @L1A*/
+      STATUS_GRADUATED  BIT(8) CONSTANT('08'B); /* Graduate mask @L1A*/
+
+ /* Student record structure                                     @L2A*/
+ DCL 1 STUDENT_RECORD TYPE,
+      3 STUDENT_ID      FIXED(31),           /* ID for student   @L2A*/
+      3 STUDENT_NAME    CHAR(30),            /* Name of student  @L2A*/
+      3 GRADES(5)       FIXED(31),           /* Array of 5 subject 
+                                                         grades  @L2A*/
+      3 AVERAGE         FIXED(31),           /* Average grade    @L2A*/
+      3 STATUS_FLAGS    BIT(8),              /* Student status   @L2A*/
+      3 YEAR            FIXED(31);           /* Year of study    @L2A*/
+
+ Dcl tBoolean  Bit Type;            /* Definition of Boolean     @L2A*/
+ Dcl $True     IsA(tBoolean) Constant('1'b); /* Definition of 
+                                                True             @L2A*/
+ Dcl $False    IsA(tBoolean) Constant('0'b); /* Definition of
+                                                False            @L2A*/
+
+ /* Return codes of functions                                    @L2A*/
+ DCL RC_SUCCESS        FIXED(31) CONSTANT(0); /* Successful execution 
+                                                   return code   @L2A*/
+ DCL RC_NOT_FOUND      FIXED(31) CONSTANT(4); /* Element in array not 
+                                             found return code   @L2A*/
+ DCL RC_INVALID_INPUT  FIXED(31) CONSTANT(8); /* Invalid input in 
+                                          function return codes  @L2A*/
+ DCL RC_ARRAY_FULL     FIXED(31) CONSTANT(12);/* Array is full
+                                                return code      @L2A*/
+
+*/** Start of Method Prolog *******************************************
+*
+*  name:    GetLetterGrade:
+*
+*  function: Assign a grade letter based on the student score
+*
+*  input:   score         - score of a student
+*                           Fixed(31)
+*           letter        - grade letter to be set based on score
+*                           Char
+*
+*  output:  assigns new value to letter
+*
+**** End of Method Prolog ********************************************/
+ /* ++H "GetLetterGrade": entry to assign a letter grade         @L0A*/
+ /********************************************************************/
+ ?AsaXMac ProcEntry(GetLetterGrade)
+          EDTL(score    := Fixed(31) ByValue
+              ,letter   := Char ByAddr)
+            ;
+   IF score >= GRADE_A THEN         /* Is score higher than 90?  @L0A*/
+      DO;                           /* Yes                       @L0A*/
+         letter = 'A';
+      END;
+   ELSE IF score >= GRADE_B THEN    /* Is score higher than 80 ? @L0A*/
+      DO;                           /* Yes                       @L0A*/
+         letter = 'B';
+      END;
+   ELSE IF score >= GRADE_C THEN    /* Is score higher than 70 ? @L0A*/
+      DO;                           /* Yes                       @L0A*/
+         letter = 'C';
+      END;
+   ELSE IF score >= GRADE_D THEN    /* Is score higher than 60 ? @L0A*/
+      DO;                           /* Yes                       @L0A*/
+         letter = 'D';
+      END;
+   ELSE
+      letter = 'F';
+ ?AsaXMac ProcEnd(GetLetterGrade); /*                            @L0A*/
+ /********************************************************************/
+ /* ++H End "GetLetterGrade"                                     @L0A*/
+ /********************************************************************/
+                                                                @eject;
+
+*/** Start of Method Prolog *******************************************
+*
+*  name:    HasHonorsStatus:
+*
+*  function: Checks if a student has honors status
+*
+*  input:   statusFlags - current status bits of a student
+*                         Bit(8)
+*
+*  output:  True or False
+*
+**** End of Method Prolog ********************************************/
+ /* ++H "HasHonorsStatus": entry to check if honor status is set @L1A*/
+ /********************************************************************/
+ ?AsaXMac ProcEntry(HasHonorsStatus)
+          EDTL(statusFlags := Bit(8) ByAddr)
+          Returns(IsA(tBoolean));
+   Dcl returnValue IsA(tBoolean);
+   returnValue = (statusFlags & STATUS_HONORS) ^= '0'b; /* Fix check 
+                                          if a bit is turned on  @00C*/
+ ?AsaXMac ProcEnd(HasHonorsStatus) ! 
+          ReturnProcess(Return(returnValue)); /*                 @L1A*/
+ /********************************************************************/
+ /* ++H End "HasHonorsStatus"                                    @L1A*/
+ /********************************************************************/
+                                                                @eject;
+
+*/** Start of Method Prolog *******************************************
+*
+*  name:    SetStatus:
+*
+*  function: Add new status to flags of a student
+*
+*  input:   statusFlags - current status bits of a student
+*                         Bit(8)
+*           flag        - flag bit to be set
+*
+*  output:  True or False
+*
+**** End of Method Prolog ********************************************/
+ /* ++H "SetStatus": entry to set bits on or off in status flags @L1A*/
+ /********************************************************************/
+ ?AsaXMac ProcEntry(SetStatus)
+          EDTL(statusFlags := Bit(8) ByAddr
+              ,flag        := Bit(8) ByValue)
+          ;
+   statusFlags = statusFlags | flag; /* Fix logic for setting a 
+                                    bit on                       @00C*/
+ ?AsaXMac ProcEnd(SetStatus); /*                                 @L1A*/
+ /********************************************************************/
+ /* ++H End "SetStatus"                                          @L1A*/
+ /********************************************************************/
+                                                                @eject;
+
+*/** Start of Method Prolog *******************************************
+*
+*  name:    ClearStatus:
+*
+*  function: Add new status to flags of a student
+*
+*  input:   statusFlags - current status bits of a student
+*                         Bit(8)
+*           flag        - flag bit to be cleared
+*
+*  output:  True or False
+*
+**** End of Method Prolog ********************************************/
+ /* ++H "ClearStatus": entry to clear bits in status flags       @L1A*/
+ /********************************************************************/
+ ?AsaXMac ProcEntry(ClearStatus)
+          EDTL(statusFlags := Bit(8) ByAddr
+              ,flag        := Bit(8) ByValue)
+          ;
+   statusFlags = statusFlags ^ ~flag; /* Fix logic for clearing a
+                                          bit                    @00C*/
+ ?AsaXMac ProcEnd(ClearStatus); /*                               @L1A*/
+ /********************************************************************/
+ /* ++H End "ClearStatus"                                        @L1A*/
+ /********************************************************************/
+                                                                @eject;
