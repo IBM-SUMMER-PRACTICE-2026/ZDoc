@@ -30,8 +30,8 @@ module-level doc instead of attaching to the next symbol.
   state machine over spans of the input; nothing is tokenized into memory.
 - **Lazy line numbers.** Newlines are counted with `memchr` only over the
   gap since the previous symbol, so hot loops never track lines.
-- **Bump-arena strings.** All output strings live in an arena; teardown is
-  a handful of `free`s.
+- **Heap-allocated strings.** Each output string is individually allocated;
+  `cp_result_free` walks the symbols and doc blocks to release them.
 
 ## Performance
 
@@ -39,8 +39,8 @@ Measured on an Apple Silicon laptop (`-O3`, single thread):
 
 - **~330 MB/s end-to-end** — 56 MB of `sqlite3.h` (100 concatenated copies)
   parsed *and* serialized to JSON (24,400 symbols) in 0.17 s.
-- Memory stays flat: one padded copy of the source, one contiguous symbol
-  array, one bump arena for strings. Teardown is a handful of `free`s.
+- Memory: one padded copy of the source, one contiguous symbol array, and
+  per-field heap strings freed individually at teardown.
 - Validated against production headers: zlib.h, sqlite3.h, and libc++'s
   `__vector/vector.h` (179 symbols) parse cleanly with valid JSON.
 

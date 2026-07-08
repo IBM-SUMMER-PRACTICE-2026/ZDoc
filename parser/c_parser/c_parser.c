@@ -8,7 +8,8 @@
  *     brace-matching loop driven by a 256-entry "interesting char" table
  *   - line numbers are computed lazily (memchr over the gap since the last
  *     query) so the hot loops never count newlines
- *   - all output strings live in a bump arena; one free tears everything down
+ *   - output strings are individually heap-allocated; cp_result_free walks the
+ *     symbols and doc blocks to release them
  */
 #include "c_parser.h"
 
@@ -18,39 +19,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ------------------------------------------------------------------ arena */
+/* -------------------------------------------------------------- allocation */
 
-typedef struct ablk {
-    struct ablk *next;
-    size_t used, cap;
-} ablk;
-
-typedef struct {
-    ablk *head;
-} arena;
-
-static void *aalloc(arena *A, size_t n)
+/* Copy s[0..n) into a fresh heap buffer, NUL-terminated. Each output string
+ * is individually owned and released in cp_result_free / free_doc. */
+static char *dupn(const char *s, size_t n)
 {
-    n = (n + 15u) & ~(size_t)15u;
-    ablk *b = A->head;
-    if (!b || b->cap - b->used < n) {
-        size_t cap = n > 65536 ? n : 65536;
-        b = (ablk *)malloc(sizeof *b + cap);
-        if (!b)
-            return NULL;
-        b->next = A->head;
-        b->used = 0;
-        b->cap = cap;
-        A->head = b;
-    }
-    void *r = (char *)(b + 1) + b->used;
-    b->used += n;
-    return r;
-}
-
-static char *adup(arena *A, const char *s, size_t n)
-{
-    char *d = (char *)aalloc(A, n + 1);
+    char *d = (char *)malloc(n + 1);
     if (!d)
         return NULL;
     memcpy(d, s, n);
@@ -58,14 +33,17 @@ static char *adup(arena *A, const char *s, size_t n)
     return d;
 }
 
-static void arena_free(arena *A)
+/* Free every heap string a cp_doc owns (all fields tolerate NULL). */
+static void free_doc(cp_doc *d)
 {
-    ablk *b = A->head;
-    while (b) {
-        ablk *n = b->next;
-        free(b);
-        b = n;
+    free((char *)d->brief);
+    free((char *)d->returns);
+    free((char *)d->notes);
+    for (size_t i = 0; i < d->nparams; i++) {
+        free((char *)d->params[i].name);
+        free((char *)d->params[i].desc);
     }
+    free(d->params);
 }
 
 /* -------------------------------------------------------- growable string */
@@ -103,14 +81,20 @@ static void sb_join(sb *s, const char *a, const char *b)
     sb_put(s, a, (size_t)(b - a));
 }
 
-/* Trim trailing whitespace, copy into arena, release the buffer.
- * Returns NULL for empty content. */
-static const char *sb_done(sb *s, arena *A)
+/* Trim trailing whitespace and hand the buffer to the caller (who now owns
+ * it and must free()). Returns NULL for empty content. */
+static const char *sb_done(sb *s)
 {
     while (s->n && isspace((unsigned char)s->d[s->n - 1]))
         s->n--;
-    const char *r = s->n ? adup(A, s->d, s->n) : NULL;
-    free(s->d);
+    const char *r;
+    if (s->n) {
+        s->d[s->n] = 0; /* sb_put always keeps room for the terminator */
+        r = s->d;       /* transfer ownership - no copy */
+    } else {
+        free(s->d);
+        r = NULL;
+    }
     s->d = NULL;
     s->n = s->cap = 0;
     return r;
@@ -119,7 +103,6 @@ static const char *sb_done(sb *s, arena *A)
 /* ----------------------------------------------------------------- result */
 
 struct cp_result {
-    arena A;
     cp_symbol *syms;
     size_t n, cap;
     char *buf;      /* padded private copy of the source */
@@ -507,7 +490,6 @@ typedef struct {
  * on the result instead. */
 static int parse_doc_text(P *st, docref d, cp_doc *out)
 {
-    arena *A = &st->res->A;
     const char *s = d.s, *e = d.e;
     if (!d.is_line) {
         s += 3; /* past the opener incl. the doc marker char */
@@ -576,8 +558,13 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
                 while (r < b && !isspace((unsigned char)*r))
                     r++;
                 if (np == cp_) {
-                    cp_ = cp_ ? cp_ * 2 : 8;
-                    dp = (draft_param *)realloc(dp, cp_ * sizeof *dp);
+                    size_t ncp = cp_ ? cp_ * 2 : 8;
+                    draft_param *ndp =
+                        (draft_param *)realloc(dp, ncp * sizeof *dp);
+                    if (!ndp)
+                        continue; /* OOM: drop this @param, keep the rest */
+                    dp = ndp;
+                    cp_ = ncp;
                 }
                 memset(&dp[np], 0, sizeof dp[np]);
                 sb_put(&dp[np].name, nsrt, (size_t)(r - nsrt));
@@ -621,16 +608,24 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
     }
 
     cp_doc doc = {0};
-    doc.brief = sb_done(&brief, A);
-    doc.returns = sb_done(&rets, A);
-    doc.notes = sb_done(&notes, A);
+    doc.brief = sb_done(&brief);
+    doc.returns = sb_done(&rets);
+    doc.notes = sb_done(&notes);
     if (np) {
-        doc.params = (cp_doc_param *)aalloc(A, np * sizeof *doc.params);
-        for (size_t i = 0; i < np; i++) {
-            doc.params[i].name = sb_done(&dp[i].name, A);
-            doc.params[i].desc = sb_done(&dp[i].desc, A);
+        doc.params = (cp_doc_param *)malloc(np * sizeof *doc.params);
+        if (doc.params) {
+            for (size_t i = 0; i < np; i++) {
+                doc.params[i].name = sb_done(&dp[i].name);
+                doc.params[i].desc = sb_done(&dp[i].desc);
+            }
+            doc.nparams = np;
+        } else {
+            /* OOM: drain the draft buffers so they don't leak */
+            for (size_t i = 0; i < np; i++) {
+                free((char *)sb_done(&dp[i].name));
+                free((char *)sb_done(&dp[i].desc));
+            }
         }
-        doc.nparams = np;
     }
     free(dp);
 
@@ -638,6 +633,9 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
         if (!st->res->has_filedoc) {
             st->res->filedoc = doc;
             st->res->has_filedoc = 1;
+        } else {
+            /* only the first @file/@mainpage is kept; free the rest */
+            free_doc(&doc);
         }
         memset(out, 0, sizeof *out);
         return 0;
@@ -648,12 +646,13 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
 
 /* ------------------------------------------------------------- emission */
 
-/* Copy [a,b) collapsing whitespace runs and stripping comments. */
-static const char *make_sig(P *st, const char *a, const char *b)
+/* Copy [a,b) collapsing whitespace runs and stripping comments. Returns an
+ * owned heap string, or NULL on allocation failure. */
+static char *make_sig(const char *a, const char *b)
 {
-    char *out = (char *)aalloc(&st->res->A, (size_t)(b - a) + 1);
+    char *out = (char *)malloc((size_t)(b - a) + 1);
     if (!out)
-        return "";
+        return NULL;
     size_t o = 0;
     int ws = 0;
     const char *p = a;
@@ -709,8 +708,8 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     memset(sym, 0, sizeof *sym);
     sym->kind = k;
     sym->line = line;
-    sym->name = adup(&r->A, nm.s, (size_t)(nm.e - nm.s));
-    sym->signature = make_sig(st, ss, se);
+    sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
+    sym->signature = make_sig(ss, se);
     if (doc->valid) {
         sym->has_doc = parse_doc_text(st, *doc, &sym->doc);
         doc->valid = 0;
@@ -1208,8 +1207,15 @@ void cp_result_free(cp_result *r)
 {
     if (!r)
         return;
+    for (size_t i = 0; i < r->n; i++) {
+        cp_symbol *s = &r->syms[i];
+        free((char *)s->name);
+        free((char *)s->signature);
+        free_doc(&s->doc);
+    }
+    if (r->has_filedoc)
+        free_doc(&r->filedoc);
     free(r->syms);
     free(r->buf);
-    arena_free(&r->A);
     free(r);
 }
