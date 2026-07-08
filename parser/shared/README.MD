@@ -88,9 +88,11 @@ before wiring those parsers over):
 - `Module` level: c_parser's module-doc block (`cp_module_doc`) and error string
   (`cp_error`).
 
-**Integration status:** `plx_parser` is wired over to these structs and populates
-`line`; its `notes`/`type`/`diagram` stay `NULL`. `c_parser` and `java_parser`
-are not yet migrated.
+**Integration status:** `plx_parser` and `java_parser` are wired over to these
+structs. `plx` populates `line`/`type` (always `"procedure"`) and leaves
+`notes`/`diagram` `NULL`; `java` populates `line` and every doc field
+(`description`/`output`/`notes`/`input`/`diagram`) and leaves `type` `NULL`.
+`c_parser` is not yet migrated.
 
 ## Files
 
