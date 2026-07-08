@@ -12,6 +12,7 @@
  *     symbols and doc blocks to release them
  */
 #include "c_parser.h"
+#include "../shared/parser_shared.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1147,7 +1148,7 @@ cp_result *cp_parse_buffer(const char *src, size_t len)
     return r;
 }
 
-cp_result *cp_parse_file(const char *path)
+cp_result *cp_parser(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -1234,4 +1235,125 @@ void cp_result_free(cp_result *r)
     free(r->syms);
     free(r->buf);
     free(r);
+}
+
+/* ------------------------------------------------ shared Module adapter */
+
+/* Duplicate a C string with dupn (reuses the module's owned-string helper). */
+static char *dupcstr(const char *s)
+{
+    return s ? dupn(s, strlen(s)) : NULL;
+}
+
+/* Move every owned string out of a parsed cp_result into a shared Module.
+ * Strings are transferred (not copied); the cp_symbol fields are cleared so
+ * cp_result_free then tears down only the leftovers (the emptied doc blocks,
+ * the file-level doc we drop, the symbol array and the result itself).
+ *
+ * Field mapping: kind -> type (as a string), doc.brief -> description,
+ * doc.returns -> output, doc.notes -> notes, doc.params -> input. The
+ * C-only module doc and has_doc flag have no shared home and are dropped. */
+static Module *result_to_module(cp_result *r, const char *path)
+{
+    Module *m = (Module *)calloc(1, sizeof *m);
+    if (!m) {
+        cp_result_free(r);
+        return NULL;
+    }
+    m->filename = dupcstr(path);
+
+    if (r->n) {
+        m->symbols = (Symbol *)malloc(r->n * sizeof *m->symbols);
+        if (!m->symbols) {
+            /* OOM: hand back an empty module, let cp_result_free reclaim all */
+            cp_result_free(r);
+            return m;
+        }
+        m->symbolCount = (int)r->n;
+        m->symbolCap = (int)r->n;
+
+        for (size_t i = 0; i < r->n; i++) {
+            cp_symbol *cs = &r->syms[i];
+            Symbol *sy = &m->symbols[i];
+            memset(sy, 0, sizeof *sy);
+
+            sy->name = (char *)cs->name;
+            cs->name = NULL;
+            sy->signature = (char *)cs->signature;
+            cs->signature = NULL;
+            sy->line = cs->line;
+            sy->type = dupcstr(cp_symbol_kind_name(cs->kind));
+            sy->diagram = NULL;
+
+            sy->description = (char *)cs->doc.brief;
+            cs->doc.brief = NULL;
+            sy->output = (char *)cs->doc.returns;
+            cs->doc.returns = NULL;
+            sy->notes = (char *)cs->doc.notes;
+            cs->doc.notes = NULL;
+
+            if (cs->doc.nparams) {
+                sy->input =
+                    (InputParam *)malloc(cs->doc.nparams * sizeof *sy->input);
+                if (sy->input) {
+                    sy->inputCount = (int)cs->doc.nparams;
+                    for (size_t j = 0; j < cs->doc.nparams; j++) {
+                        sy->input[j].name = (char *)cs->doc.params[j].name;
+                        sy->input[j].description =
+                            (char *)cs->doc.params[j].desc;
+                    }
+                    /* strings moved; drop the shell so cp_result_free skips */
+                    free(cs->doc.params);
+                    cs->doc.params = NULL;
+                    cs->doc.nparams = 0;
+                }
+                /* on OOM leave doc.params intact for cp_result_free to reclaim */
+            }
+        }
+    }
+
+    cp_result_free(r);
+    return m;
+}
+
+Module *cp_parse_file(const char *path)
+{
+    cp_result *r = cp_parser(path);
+    if (!r)
+        return NULL; /* allocation failure */
+
+    if (cp_error(r)) {
+        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, cp_error(r));
+        cp_result_free(r);
+        Module *m = (Module *)calloc(1, sizeof *m);
+        if (m)
+            m->filename = dupcstr(path);
+        return m; /* empty module */
+    }
+
+    return result_to_module(r, path);
+}
+
+void cp_free_module(Module *m)
+{
+    if (!m)
+        return;
+    for (int i = 0; i < m->symbolCount; i++) {
+        Symbol *s = &m->symbols[i];
+        free(s->name);
+        free(s->signature);
+        free(s->description);
+        free(s->output);
+        free(s->notes);
+        free(s->type);
+        free(s->diagram);
+        for (int j = 0; j < s->inputCount; j++) {
+            free(s->input[j].name);
+            free(s->input[j].description);
+        }
+        free(s->input);
+    }
+    free(m->symbols);
+    free(m->filename);
+    free(m);
 }

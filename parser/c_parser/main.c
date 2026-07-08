@@ -1,10 +1,12 @@
 /*
  * zdoc-c-parser — CLI driver for the ZDoc C/C++ parser.
  *
- * Parses the given source files and prints the extracted symbols in a
- * human-readable layout on stdout (mirroring the plx/java parser demos).
+ * Parses the given source files through the public cp_parse_file() entry
+ * point and prints the resulting shared Module in a human-readable layout on
+ * stdout (mirroring the plx/java parser demos).
  */
 #include "c_parser.h"
+#include "../shared/parser_shared.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,63 +33,43 @@ static const char *or_null(const char *s)
     return s ? s : "(null)";
 }
 
-/* Print a doc block's fields (brief/returns/notes/params) indented. */
-static void print_doc(FILE *o, const cp_doc *d)
+static void print_module(const Module *m, const char *path)
 {
-    fprintf(o, "    Brief      : %s\n", or_null(d->brief));
-    fprintf(o, "    Returns    : %s\n", or_null(d->returns));
-    fprintf(o, "    Notes      : %s\n", or_null(d->notes));
-    fprintf(o, "    Params (%zu) :", d->nparams);
-    if (d->nparams == 0) {
-        fputs(" (none)\n", o);
-    } else {
-        fputc('\n', o);
-        for (size_t i = 0; i < d->nparams; i++)
-            fprintf(o, "      - %s - %s\n", or_null(d->params[i].name),
-                    or_null(d->params[i].desc));
+    printf("Module: %s (language: %s)\n", or_null(m->filename), lang_of(path));
+    printf("Documented symbols: %d\n", m->symbolCount);
+
+    for (int i = 0; i < m->symbolCount; i++) {
+        const Symbol *s = &m->symbols[i];
+        printf("\n[%d] %s\n", i + 1, or_null(s->name));
+        printf("    Name       : %s\n", or_null(s->name));
+        printf("    Signature  : %s\n", or_null(s->signature));
+        printf("    Line       : %u\n", s->line);
+        printf("    Type       : %s\n", or_null(s->type));
+        printf("    Brief      : %s\n", or_null(s->description));
+        printf("    Returns    : %s\n", or_null(s->output));
+        printf("    Notes      : %s\n", or_null(s->notes));
+        printf("    Diagram    : %s\n", or_null(s->diagram));
+        printf("    Params (%d) :", s->inputCount);
+        if (s->inputCount == 0) {
+            fputs(" (none)\n", stdout);
+        } else {
+            fputc('\n', stdout);
+            for (int j = 0; j < s->inputCount; j++)
+                printf("      - %s - %s\n", or_null(s->input[j].name),
+                       or_null(s->input[j].description));
+        }
     }
 }
 
-static int emit_module(FILE *o, const char *path)
+static int emit_module(const char *path)
 {
-    cp_result *r = cp_parse_file(path);
-    if (!r || cp_error(r)) {
-        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path,
-                r ? cp_error(r) : "out of memory");
-        cp_result_free(r);
+    Module *m = cp_parse_file(path);
+    if (!m) {
+        fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
         return 1;
     }
-
-    size_t n;
-    const cp_symbol *syms = cp_symbols(r, &n);
-
-    fprintf(o, "Module: %s (language: %s)\n", path, lang_of(path));
-    fprintf(o, "Documented symbols: %zu\n", n);
-
-    cp_doc md;
-    if (cp_module_doc(r, &md)) {
-        fputs("\nModule doc:\n", o);
-        print_doc(o, &md);
-    }
-
-    for (size_t i = 0; i < n; i++) {
-        const cp_symbol *s = &syms[i];
-        fprintf(o, "\n[%zu] %s\n", i + 1, or_null(s->name));
-        fprintf(o, "    Name       : %s\n", or_null(s->name));
-        fprintf(o, "    Signature  : %s\n", or_null(s->signature));
-        fprintf(o, "    Line       : %u\n", s->line);
-        fprintf(o, "    Type       : %s\n", cp_symbol_kind_name(s->kind));
-        if (s->has_doc) {
-            print_doc(o, &s->doc);
-        } else {
-            fputs("    Brief      : (null)\n", o);
-            fputs("    Returns    : (null)\n", o);
-            fputs("    Notes      : (null)\n", o);
-            fputs("    Params (0) : (none)\n", o);
-        }
-    }
-
-    cp_result_free(r);
+    print_module(m, path);
+    cp_free_module(m);
     return 0;
 }
 
@@ -108,8 +90,8 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "--help") == 0) {
         puts("usage: zdoc-c-parser <source files>\n"
-             "Parses C/C++ sources and prints extracted symbols + doc\n"
-             "comments as JSON on stdout (one \"modules\" entry per file).");
+             "Parses C/C++ sources and prints the extracted symbols in a\n"
+             "human-readable layout on stdout (one module per file).");
         return 0;
     }
 
@@ -117,7 +99,7 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (i > 1)
             fputc('\n', stdout);
-        rc |= emit_module(stdout, argv[i]);
+        rc |= emit_module(argv[i]);
     }
     return rc;
 }
