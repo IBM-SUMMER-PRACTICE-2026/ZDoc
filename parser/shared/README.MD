@@ -8,8 +8,8 @@ parsers write their output into, and a counter of how many files are done.
 - **Builds on:** the [`module_tree`](../../extractor/doc_extractor/module_tree/README.md)
   tables (`modtree_dir_table_t` / `modtree_file_table_t`)
 - **Status:** In progress — the shared output structs (`Module` / `Symbol` /
-  `InputParam`) are written, but `global_parsed_files_arry` still points at the
-  `TempName` placeholder until the parsers are wired over (see below)
+  `InputParam`) are defined and `plx_parser` is wired over to them; `c_parser`
+  and `java_parser` are not yet migrated (see below)
 
 ---
 
@@ -20,7 +20,7 @@ parsers write their output into, and a counter of how many files are done.
 | `global_dir_table`                        | `modtree_dir_table_t`    | Directory table for the sources being documented           |
 | `global_file_table`                       | `modtree_file_table_t`   | File table — the set of files the parsers walk             |
 | `files_count`                             | `int`                    | Number of files to parse, taken from the file table        |
-| `global_parsed_files_arry`                | `TempName*`              | Output array, one entry per file (allocated by init); still the placeholder type |
+| `global_parsed_files_arry`                | `Module*`                | Output array, one entry per file (allocated by init)       |
 | `finished_files`                          | `_Atomic int`            | How many files have been parsed; atomic for concurrent use |
 
 `init_resources()` reads the file count from the module-tree interface
@@ -50,6 +50,9 @@ typedef struct {
     int inputCount;      /* number of parameters                      */
     char *output;        /* return-value / OUTPUT description          */
     char *notes;         /* @throws / caveats / misc remarks          */
+    uint32_t line;       /* 1-based line of the declaration            */
+    char *type;          /* symbol category (c `kind`); NULL if unused */
+    char *diagram;       /* AI-mode diagram; NULL until online mode    */
 } Symbol;
 
 typedef struct {
@@ -70,43 +73,30 @@ typedef struct {
 | `Symbol.input`       | `input`       | `doc.params`        | `params`     |
 | `Symbol.output`      | `output`      | `doc.returns`       | `returns`    |
 | `Symbol.notes`       | —             | `doc.notes`         | `notes`      |
+| `Symbol.line`        | `line`        | `line`              | `line`       |
+| `Symbol.type`        | —             | `kind`              | —            |
+| `Symbol.diagram`     | —             | —                   | `diagram`    |
 | `InputParam.description` | `description` | `desc`          | `description`|
 
-**Fields not yet represented** (present in a source parser, dropped here — revisit
+Fields a parser has no logic for yet are left `NULL`/`0` (the symbol is
+`memset` to zero on allocation).
+
+**Fields not yet represented** (present in a source parser, no shared home — revisit
 before wiring those parsers over):
 
-- `line` — 1-based declaration line, present in **both** c_parser and java_parser.
-- `kind` — c_parser symbol category (function/prototype/macro/type/variable).
 - `has_doc` — c_parser documented-vs-undocumented flag.
-- `diagram` — java_parser AI-mode diagram.
 - `Module` level: c_parser's module-doc block (`cp_module_doc`) and error string
   (`cp_error`).
 
-## ⚠️ `TempName` is a temporary placeholder — change it
-
-```c
-typedef struct {
-    int testVar;
-} TempName;
-```
-
-`global_parsed_files_arry` is still declared as `TempName*`. `TempName` is a
-stand-in whose single `testVar` field only exists so `init_resources()` has
-something to `sizeof` and allocate for the test. Once the parsers emit the
-shared `Module`:
-
-- Point `global_parsed_files_arry` at `Module` and delete `TempName`.
-- Update the declaration in [`parser_shared.h`](parser_shared.h) and its
-  definition in [`parser_shared.c`](parser_shared.c).
-- Update [`global_resources_test.c`](global_resources_test.c) to match.
-
----
+**Integration status:** `plx_parser` is wired over to these structs and populates
+`line`; its `notes`/`type`/`diagram` stay `NULL`. `c_parser` and `java_parser`
+are not yet migrated.
 
 ## Files
 
 | File                                                     | Purpose                                                     |
 |----------------------------------------------------------|-------------------------------------------------------------|
-| [`parser_shared.h`](parser_shared.h)                     | Declares the shared globals, the output structs (`Module`/`Symbol`/`InputParam`), the `TempName` placeholder, and `init_resources` |
+| [`parser_shared.h`](parser_shared.h)                     | Declares the shared globals, the output structs (`Module`/`Symbol`/`InputParam`), and `init_resources` |
 | [`parser_shared.c`](parser_shared.c)                     | Defines the globals and implements `init_resources`         |
 | [`global_resources_test.c`](global_resources_test.c)     | Self-check: mocks a one-file table, runs init, asserts state |
 

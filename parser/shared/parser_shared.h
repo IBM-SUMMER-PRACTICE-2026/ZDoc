@@ -2,6 +2,7 @@
 #define PARSER_SHARED_H
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdatomic.h>
 #include "../../extractor/doc_extractor/module_tree/modtree_tables.h"
 

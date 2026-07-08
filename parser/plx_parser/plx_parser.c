@@ -434,6 +434,13 @@ static void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
     sym->signature = signature ? xstrdup(signature) : NULL;
     sym->description = sb_steal(&b->description);
     sym->output = sb_steal(&b->output);
+    
+    sym->line = (uint32_t)(procName ? lineNo : b->startLine);
+    /* PL/X only ever documents procedures - both plain 'NAME: PROC(...)' and
+     * '?AsaXMac ProcEntry(NAME)' macro routines normalize to the same kind. */
+    sym->type = xstrdup("procedure");
+    /* notes/diagram: no PL/X logic yet - left NULL by module_add_symbol. */
+
     build_input_params(&b->inputLines, sym, mod->filename, b->startLine);
 
     /* Cross-check doc name vs. actual procedure name (per convention). */
@@ -650,6 +657,7 @@ Module *plx_parse_file(const char *path)
     SigState sigState = { 0, 0, 0 };
     StrBuf sig;
     char *sigProc = NULL;
+    int procLine = 0; /* line the PROC/ProcEntry was matched on */
 
     mod = xmalloc(sizeof(Module));
     mod->filename = xstrdup(path);
@@ -671,12 +679,12 @@ Module *plx_parse_file(const char *path)
             if (sig_consume(&sig, line, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
-                    block_to_symbol(&blk, mod, sigProc, sigText, lineNo);
+                    block_to_symbol(&blk, mod, sigProc, sigText, procLine);
                 else
                     fprintf(stderr,
                             "%s:%d: note: procedure '%s' has no doc-comment "
                             "block - skipped\n",
-                            path, lineNo, sigProc);
+                            path, procLine, sigProc);
                 free(sigText);
                 free(sigProc);
                 sigProc = NULL;
@@ -738,15 +746,16 @@ Module *plx_parse_file(const char *path)
             sigState.inComment = 0;
             sigState.inString = 0;
             sigProc = procName;
+            procLine = lineNo;
             if (sig_consume(&sig, line, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
-                    block_to_symbol(&blk, mod, sigProc, sigText, lineNo);
+                    block_to_symbol(&blk, mod, sigProc, sigText, procLine);
                 else
                     fprintf(stderr,
                             "%s:%d: note: procedure '%s' has no doc-comment "
                             "block - skipped\n",
-                            path, lineNo, sigProc);
+                            path, procLine, sigProc);
                 free(sigText);
                 free(sigProc);
                 sigProc = NULL;
@@ -772,6 +781,12 @@ Module *plx_parse_file(const char *path)
 /* Output / cleanup                                                    */
 /* ------------------------------------------------------------------ */
 
+/* Render a possibly-NULL string as "(null)" so every field prints. */
+static const char *or_null(const char *s)
+{
+    return s ? s : "(null)";
+}
+
 void plx_print_module(const Module *mod)
 {
     int i, j;
@@ -782,25 +797,24 @@ void plx_print_module(const Module *mod)
     for (i = 0; i < mod->symbolCount; i++) {
         const Symbol *sym = &mod->symbols[i];
 
-        printf("\n[%d] %s\n", i + 1, sym->name[0] ? sym->name : "(unnamed)");
-        if (sym->signature)
-            printf("    Signature  : %s\n", sym->signature);
-        printf("    Description: %s\n",
-               sym->description[0] ? sym->description : "(none)");
+        printf("\n[%d] %s\n", i + 1, or_null(sym->name));
+        printf("    Name       : %s\n", or_null(sym->name));
+        printf("    Description: %s\n", or_null(sym->description));
+        printf("    Signature  : %s\n", or_null(sym->signature));
+        printf("    Line       : %u\n", sym->line);
+        printf("    Output     : %s\n", or_null(sym->output));
+        printf("    Notes      : %s\n", or_null(sym->notes));
+        printf("    Type       : %s\n", or_null(sym->type));
+        printf("    Diagram    : %s\n", or_null(sym->diagram));
+        printf("    Input (%d)  :", sym->inputCount);
         if (sym->inputCount == 0) {
-            printf("    Input      : (none)\n");
+            printf(" (none)\n");
         } else {
-            printf("    Input      :\n");
-            for (j = 0; j < sym->inputCount; j++) {
-                if (sym->input[j].description[0])
-                    printf("      - %s - %s\n", sym->input[j].name,
-                           sym->input[j].description);
-                else
-                    printf("      - %s\n", sym->input[j].name);
-            }
+            printf("\n");
+            for (j = 0; j < sym->inputCount; j++)
+                printf("      - %s - %s\n", or_null(sym->input[j].name),
+                       or_null(sym->input[j].description));
         }
-        printf("    Output     : %s\n",
-               sym->output[0] ? sym->output : "(none)");
     }
 }
 
@@ -816,6 +830,9 @@ void plx_free_module(Module *mod)
         free(sym->description);
         free(sym->signature);
         free(sym->output);
+        free(sym->notes);
+        free(sym->type);
+        free(sym->diagram);
         for (j = 0; j < sym->inputCount; j++) {
             free(sym->input[j].name);
             free(sym->input[j].description);
