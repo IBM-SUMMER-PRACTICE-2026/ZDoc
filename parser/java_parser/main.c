@@ -1,9 +1,8 @@
 /*
  * zdoc-java-parser — CLI driver for the ZDoc Java parser.
  *
- * Parses the given source files and prints one JSON document on stdout:
- *   { "zdoc_parser": "java", "modules": [ { file, language, symbols... } ] }
- * Downstream ZDoc stages (extractor, renderers, bob_client) consume this.
+ * Parses the given source files and prints the extracted symbols in a
+ * human-readable layout on stdout (mirroring the plx_parser demo format).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,103 +44,19 @@ static char *read_file(const char *path, size_t *out_len, const char **err) {
     return buf;
 }
 
-// True if c needs escaping in a JSON string - everything else can be
-// written out verbatim in one run instead of one fputc() per byte.
-static int json_needs_escape(unsigned char c) {
-    return c == '"' || c == '\\' || c < 0x20;
-}
-
-static void jstr(FILE *o, const char *s) {
-    fputc('"', o);
-    const unsigned char *p = (const unsigned char *)s;
-    const unsigned char *run_start = p;
-    for(; *p; p++) {
-        if(!json_needs_escape(*p)) continue;
-
-        if(p > run_start) fwrite(run_start, 1, (size_t)(p - run_start), o);
-        switch(*p) {
-            case '"':  fputs("\\\"", o); break;
-            case '\\': fputs("\\\\", o); break;
-            case '\n': fputs("\\n", o); break;
-            case '\r': fputs("\\r", o); break;
-            case '\t': fputs("\\t", o); break;
-            default:   fprintf(o, "\\u%04x", *p); break;
-        }
-        run_start = p + 1;
-    }
-    if(p > run_start) fwrite(run_start, 1, (size_t)(p - run_start), o);
-    fputc('"', o);
-}
-
-static void jdoc(FILE *o, const Symbol *s) {
-    fputs("{", o);
-    int first = 1;
-    if(s->brief) {
-        fputs("\"brief\":", o);
-        jstr(o, s->brief);
-        first = 0;
-    }
-    if(s->param_count) {
-        if(!first) fputc(',', o);
-        fputs("\"params\":[", o);
-        for(size_t i = 0; i < s->param_count; i++) {
-            if(i) fputc(',', o);
-            fputs("{\"name\":", o);
-            jstr(o, s->params[i].name ? s->params[i].name : "");
-            fputs(",\"desc\":", o);
-            jstr(o, s->params[i].description ? s->params[i].description : "");
-            fputc('}', o);
-        }
-        fputc(']', o);
-        first = 0;
-    }
-    if(s->returns) {
-        if(!first) fputc(',', o);
-        fputs("\"returns\":", o);
-        jstr(o, s->returns);
-        first = 0;
-    }
-    if(s->notes) {
-        if(!first) fputc(',', o);
-        fputs("\"notes\":", o);
-        jstr(o, s->notes);
-    }
-    fputc('}', o);
-}
-
-static int emit_module(FILE *o, const char *path) {
+static int emit_module(const char *path) {
     size_t len;
     const char *err;
     char *src = read_file(path, &len, &err);
     if(!src) {
         fprintf(stderr, "zdoc-java-parser: %s: %s\n", path, err);
-        fputs("{\"file\":", o);
-        jstr(o, path);
-        fputs(",\"error\":true,\"symbols\":[]}", o);
         return 1;
     }
 
     Module m = java_parse(path, src, len);
     free(src);
 
-    fputs("{\"file\":", o);
-    jstr(o, path);
-    fputs(",\"language\":\"java\"", o);
-
-    fputs(",\"symbols\":[", o);
-    for(size_t i = 0; i < m.count; i++) {
-        const Symbol *s = &m.symbols[i];
-        if(i) fputc(',', o);
-        fputs("\n  {\"kind\":\"function\"", o);
-        fprintf(o, ",\"line\":%u,\"name\":", s->line);
-        jstr(o, s->name ? s->name : "");
-        fputs(",\"signature\":", o);
-        jstr(o, s->signature ? s->signature : "");
-        fputs(",\"doc\":", o);
-        jdoc(o, s);
-        fputc('}', o);
-    }
-    fputs("\n]}", o);
+    java_print_module(&m);
 
     module_free(&m);
     return 0;
@@ -169,12 +84,9 @@ int main(int argc, char **argv) {
     }
 
     int rc = 0;
-    fputs("{\"zdoc_parser\":\"java\",\"version\":\"" ZDOC_JAVA_PARSER_VERSION
-          "\",\"modules\":[\n", stdout);
     for(int i = 1; i < argc; i++) {
-        if(i > 1) fputs(",\n", stdout);
-        rc |= emit_module(stdout, argv[i]);
+        if(i > 1) fputs("\n", stdout);
+        rc |= emit_module(argv[i]);
     }
-    fputs("\n]}\n", stdout);
     return rc;
 }

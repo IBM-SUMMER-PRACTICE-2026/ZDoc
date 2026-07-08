@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -186,4 +187,37 @@ Module java_parse(const char *path, const char *src, size_t len) {
     }
 
     return m;
+}
+
+// Render a possibly-NULL string as "(null)" so every field prints.
+static const char *or_null(const char *s) {
+    return s ? s : "(null)";
+}
+
+// Human-readable dump of a parsed module, mirroring the plx_parser demo layout.
+void java_print_module(const Module *m) {
+    printf("Module: %s\n", or_null(m->filename));
+    printf("Documented methods/constructors: %zu\n", m->count);
+
+    for(size_t i = 0; i < m->count; i++) {
+        const Symbol *s = &m->symbols[i];
+
+        printf("\n[%zu] %s\n", i + 1, or_null(s->name));
+        printf("    Name       : %s\n", or_null(s->name));
+        printf("    Signature  : %s\n", or_null(s->signature));
+        printf("    Line       : %u\n", s->line);
+        printf("    Brief      : %s\n", or_null(s->brief));
+        printf("    Returns    : %s\n", or_null(s->returns));
+        printf("    Notes      : %s\n", or_null(s->notes));
+        printf("    Diagram    : %s\n", or_null(s->diagram));
+        printf("    Params (%zu) :", s->param_count);
+        if(s->param_count == 0) {
+            printf(" (none)\n");
+        } else {
+            printf("\n");
+            for(size_t j = 0; j < s->param_count; j++)
+                printf("      - %s - %s\n", or_null(s->params[j].name),
+                       or_null(s->params[j].description));
+        }
+    }
 }
