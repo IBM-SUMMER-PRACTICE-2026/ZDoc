@@ -5,3 +5,4 @@ zdoc-html-renderer.exe
 # Local test render output
 out/
 out2/
+tests/tmp/

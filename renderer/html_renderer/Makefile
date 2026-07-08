@@ -7,7 +7,11 @@ HDRS = html_renderer.h html_model.h json.h
 zdoc-html-renderer: $(SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -o $@ $(SRCS)
 
+test:
+	sh tests/run_tests.sh
+
 clean:
 	rm -f zdoc-html-renderer zdoc-html-renderer.exe
+	rm -rf tests/tmp
 
-.PHONY: clean
+.PHONY: test clean
