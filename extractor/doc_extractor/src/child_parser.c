@@ -1,5 +1,6 @@
 #include "child_parser.h"
 #include "json_read.h"
+#include "plx_link.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,16 +17,16 @@
 /* --------------------------------------------------- language lookup table */
 
 static const LangEntry LANGUAGES[] = {
-    { ".java", "java", "zdoc-java-parser" },
-    { ".c",    "c",    "zdoc-c-parser" },
-    { ".h",    "c",    "zdoc-c-parser" },
-    { ".cpp",  "cpp",  "zdoc-c-parser" },
-    { ".cxx",  "cpp",  "zdoc-c-parser" },
-    { ".cc",   "cpp",  "zdoc-c-parser" },
-    { ".hpp",  "cpp",  "zdoc-c-parser" },
-    { ".plx",  "plx",  "zdoc-plx-parser" },
-    { ".pls",  "plx",  "zdoc-plx-parser" },
-    { ".plas", "plas", "zdoc-plx-parser" },
+    { ".java", "java", "zdoc-java-parser",  PARSE_SUBPROCESS },
+    { ".c",    "c",    "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".h",    "c",    "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".cpp",  "cpp",  "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".cxx",  "cpp",  "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".cc",   "cpp",  "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".hpp",  "cpp",  "zdoc-c-parser",     PARSE_SUBPROCESS },
+    { ".plx",  "plx",  "zdoc-plx-parser",   PARSE_LINKED },
+    { ".pls",  "plx",  "zdoc-plx-parser",   PARSE_LINKED },
+    { ".plas", "plas", "zdoc-plx-parser",   PARSE_LINKED },
 };
 #define LANGUAGE_COUNT (sizeof LANGUAGES / sizeof *LANGUAGES)
 
@@ -214,14 +215,15 @@ static void distribute_batch_results(BatchTopCtx *tc, const char *const *paths,
  * invocation itself succeeded (ran, exited 0, produced parseable JSON) -
  * that does not guarantee every target got matched (see
  * distribute_batch_results); returns 0 if the whole invocation failed, in
- * which case no targets are touched at all. */
+ * which case no targets are touched at all. Only called for
+ * PARSE_SUBPROCESS languages - see run_parser_batch below. */
 #ifdef _WIN32
 
 /* Windows has no fork()/execvp() - fall back to _popen, built from a quoted
  * command string. Same caveat as before applies here only: tolerates spaces
  * in paths, not embedded quote characters or other shell metacharacters. */
-int run_parser_batch(const LangEntry *lang, const char *parser_dir,
-                      const char *const *paths, DxFile **targets, size_t count) {
+static int run_parser_subprocess_batch(const LangEntry *lang, const char *parser_dir,
+                                        const char *const *paths, DxFile **targets, size_t count) {
     char bin[512];
     if(parser_dir) snprintf(bin, sizeof bin, "%s/%s", parser_dir, lang->parser_bin);
     else snprintf(bin, sizeof bin, "%s", lang->parser_bin);
@@ -259,8 +261,8 @@ int run_parser_batch(const LangEntry *lang, const char *parser_dir,
  * every path is passed as a real argv entry, never interpreted by a shell,
  * so spaces/quotes/any other character in a path just work with no
  * escaping needed at all. */
-int run_parser_batch(const LangEntry *lang, const char *parser_dir,
-                      const char *const *paths, DxFile **targets, size_t count) {
+static int run_parser_subprocess_batch(const LangEntry *lang, const char *parser_dir,
+                                        const char *const *paths, DxFile **targets, size_t count) {
     char bin[512];
     if(parser_dir) snprintf(bin, sizeof bin, "%s/%s", parser_dir, lang->parser_bin);
     else snprintf(bin, sizeof bin, "%s", lang->parser_bin);
@@ -314,3 +316,9 @@ int run_parser_batch(const LangEntry *lang, const char *parser_dir,
 }
 
 #endif
+
+int run_parser_batch(const LangEntry *lang, const char *parser_dir,
+                      const char *const *paths, DxFile **targets, size_t count) {
+    if(lang->mode == PARSE_LINKED) return run_plx_linked_batch(paths, targets, count);
+    return run_parser_subprocess_batch(lang, parser_dir, paths, targets, count);
+}
