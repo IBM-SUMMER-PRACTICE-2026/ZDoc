@@ -54,8 +54,13 @@ typedef struct {
  * non-NULL, is searched for parser binaries instead of relying on PATH.
  * A single file's parser failing does not fail the whole build - that
  * file's DxFile.error is set to 1 instead. Returns 1 on success, 0 if
- * root_dir itself could not be walked at all. */
-int dx_build(const char *root_dir, const char *parser_dir, DxModel *out);
+ * root_dir itself could not be walked at all.
+ *
+ * If print_stats is non-zero, the chunking plan (detected core count,
+ * chosen chunk size, and each language group's file/chunk counts) is
+ * printed to stderr before parsing starts - stderr so it never corrupts
+ * the JSON model on stdout. */
+int dx_build(const char *root_dir, const char *parser_dir, DxModel *out, int print_stats);
 
 void dx_free(DxModel *m);
 

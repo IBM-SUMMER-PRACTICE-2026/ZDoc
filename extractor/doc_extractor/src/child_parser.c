@@ -55,10 +55,12 @@ static char *read_all(FILE *f, size_t *out_len) {
 }
 
 /* Parses one parser's own JSON output (parser/README.md's contract:
- * {"zdoc_parser","version","modules":[{"file","language","symbols":[...]}]}).
+ * {"zdoc_parser","version","modules":[{"filename","symbols":[...]}]}).
  * A batch invocation gets back one "modules" entry per file passed in, so
  * every one of them is collected (not just the first) and matched back to
- * the right target afterward by its "file" value. */
+ * the right target afterward by its "filename" value. Each file's language
+ * is already known from its own extension (see doc_extractor.c's pass 1),
+ * so the parser doesn't need to echo it back. */
 static void field_param(JParser *j, const char *key, void *ctx) {
     DxParam *out = ctx;
     if(strcmp(key, "name") == 0) out->name = jparse_string(j);
@@ -108,28 +110,24 @@ static void field_symbol(JParser *j, const char *key, void *ctx) {
 }
 
 /* One parsed "modules" entry, before it's matched back to the DxFile that
- * requested it. Mirrors DxFile's doc-bearing fields plus the "file" value
- * (the exact path we passed as an argument) used for that matching. */
+ * requested it. Mirrors DxFile's doc-bearing fields plus the "filename"
+ * value (the exact path we passed as an argument) used for that matching. */
 typedef struct {
     char     *file;
-    char     *language;
     DxSymbol *symbols;
     size_t    symbol_count;
 } BatchModule;
 
 static void free_batch_module_contents(BatchModule *m) {
     free(m->file);
-    free(m->language);
     for(size_t k = 0; k < m->symbol_count; k++) dx_free_symbol(&m->symbols[k]);
     free(m->symbols);
 }
 
 static void field_batch_module(JParser *j, const char *key, void *ctx) {
     BatchModule *out = ctx;
-    if(strcmp(key, "file") == 0) {
+    if(strcmp(key, "filename") == 0) {
         out->file = jparse_string(j);
-    } else if(strcmp(key, "language") == 0) {
-        out->language = jparse_string(j);
     } else if(strcmp(key, "symbols") == 0) {
         if(!jeat(j, '[')) return;
         size_t cap = 0;
@@ -186,21 +184,21 @@ static int parse_batch_output(const char *json, size_t len, BatchTopCtx *tc) {
 }
 
 /* Matches every parsed module back to the path/target that produced it
- * (by exact string comparison against the "file" value each parser echoes
- * back verbatim), moving each match's language/symbols into the target and
- * clearing its error flag. Modules are freed either way - anything moved
- * into a target has its BatchModule fields nulled out first so freeing the
- * batch array afterward doesn't also free what the target now owns. */
+ * (by exact string comparison against the "filename" value each parser
+ * echoes back verbatim), moving each match's symbols into the target and
+ * clearing its error flag (language is already set from pass 1, not from
+ * the parser reply - see doc_extractor.c). Modules are freed either way -
+ * anything moved into a target has its BatchModule fields nulled out first
+ * so freeing the batch array afterward doesn't also free what the target
+ * now owns. */
 static void distribute_batch_results(BatchTopCtx *tc, const char *const *paths,
                                       DxFile **targets, size_t count) {
     for(size_t m = 0; m < tc->count; m++) {
         for(size_t i = 0; i < count; i++) {
             if(tc->modules[m].file && strcmp(tc->modules[m].file, paths[i]) == 0) {
-                targets[i]->language = tc->modules[m].language;
                 targets[i]->symbols = tc->modules[m].symbols;
                 targets[i]->symbol_count = tc->modules[m].symbol_count;
                 targets[i]->error = 0;
-                tc->modules[m].language = NULL;
                 tc->modules[m].symbols = NULL;
                 tc->modules[m].symbol_count = 0;
                 break;

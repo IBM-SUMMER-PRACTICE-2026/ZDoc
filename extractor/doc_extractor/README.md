@@ -27,4 +27,15 @@ zdoc-c-parser file.c | ./zdoc-doc-extractor
 make test
 ```
 
+## Parallel parsing
+
+Files are grouped by parser binary (Java, C/C++, PLX, ...) and each group is split
+into chunks, batched to one parser invocation per chunk instead of one per file.
+Chunks are dispatched to a thread pool (one thread per core) — pthreads on POSIX,
+native Win32 threads on Windows — so both platforms parallelize the same way; there
+is no sequential fallback. Chunk size is computed once from the **combined** file
+count across every language group, sized to core count, so a repo with several
+languages still fills the pool in about one round instead of each group spawning
+its own core's worth of chunks and multiplying the total rounds needed.
+
 See [`docs/ZDOC.md`](../../docs/ZDOC.md) for the full specification.

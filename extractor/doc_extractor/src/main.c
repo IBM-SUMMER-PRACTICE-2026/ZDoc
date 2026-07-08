@@ -16,6 +16,7 @@
 int main(int argc, char **argv) {
     const char *parser_dir = NULL;
     const char *root_dir = NULL;
+    int print_stats = 0;
 
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "--version") == 0) {
@@ -23,14 +24,17 @@ int main(int argc, char **argv) {
             return 0;
         }
         if(strcmp(argv[i], "--help") == 0) {
-            puts("usage: zdoc-doc-extractor [--parser-dir DIR] <root_dir>\n"
+            puts("usage: zdoc-doc-extractor [--parser-dir DIR] [--stats] <root_dir>\n"
                  "Walks root_dir, runs the appropriate parser on every source\n"
                  "file found, and prints the combined documentation-model\n"
                  "JSON on stdout. --parser-dir looks for parser binaries there\n"
-                 "instead of relying on PATH.");
+                 "instead of relying on PATH. --stats prints the chunking plan\n"
+                 "(detected cores, chunk size, per-language chunk counts) to\n"
+                 "stderr before parsing starts.");
             return 0;
         }
         if(strcmp(argv[i], "--parser-dir") == 0 && i + 1 < argc) { parser_dir = argv[++i]; continue; }
+        if(strcmp(argv[i], "--stats") == 0) { print_stats = 1; continue; }
         if(argv[i][0] == '-') {
             fprintf(stderr, "zdoc-doc-extractor: unknown option '%s'\n", argv[i]);
             return 2;
@@ -39,12 +43,12 @@ int main(int argc, char **argv) {
     }
 
     if(!root_dir) {
-        fprintf(stderr, "usage: zdoc-doc-extractor [--parser-dir DIR] <root_dir>\n");
+        fprintf(stderr, "usage: zdoc-doc-extractor [--parser-dir DIR] [--stats] <root_dir>\n");
         return 2;
     }
 
     DxModel model;
-    if(!dx_build(root_dir, parser_dir, &model)) {
+    if(!dx_build(root_dir, parser_dir, &model, print_stats)) {
         fprintf(stderr, "zdoc-doc-extractor: %s: could not walk directory\n", root_dir);
         return 1;
     }
