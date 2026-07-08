@@ -1,4 +1,5 @@
 *.o
 zdoc-md-renderer
 zdoc-out-test/
+zdoc-out-demo/
 tests/
