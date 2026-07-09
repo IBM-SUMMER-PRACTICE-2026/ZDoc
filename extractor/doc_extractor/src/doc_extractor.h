@@ -1,21 +1,22 @@
 /*
  * ZDoc doc_extractor — converts an already-parsed set of source files into
  * the combined documentation model (directory/file tree plus each file's
- * documented symbols), and writes it out as JSON.
+ * documented symbols).
  *
  * doc_extractor does no walking and no parsing of its own - that's done
  * elsewhere (the daemon: walks the tree via module_tree, runs the right
  * parser on every file, and produces one Module per successfully parsed
  * file). doc_extractor's job starts after that: given the already-built
  * module_tree tables and that array of parsed Module entries, assemble the
- * final DxModel and emit it.
+ * final DxModel. The result is a plain C struct, handed directly to
+ * whichever renderer needs it (in the same process) - no JSON, no
+ * serialization step.
  */
 #ifndef ZDOC_DOC_EXTRACTOR_H
 #define ZDOC_DOC_EXTRACTOR_H
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
 #include "module_tree/modtree_tables.h"
 
@@ -107,8 +108,5 @@ void dx_free(DxModel *m);
 /* Frees a DxSymbol's string/array fields without freeing the struct itself
  * (it usually lives inside an array). */
 void dx_free_symbol(DxSymbol *s);
-
-/* Writes *m to o as the combined documentation-model JSON. */
-void dx_write(const DxModel *m, FILE *o);
 
 #endif /* ZDOC_DOC_EXTRACTOR_H */

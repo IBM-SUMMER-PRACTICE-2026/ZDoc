@@ -1,7 +1,8 @@
 /*
- * Walks a parsed MdModel and writes it out as Markdown: one .md file per
- * module (mirroring the source directory structure) plus a root index.md
- * linking to all of them. No JSON involved here - see md_model.c for that.
+ * Walks a DxModel and writes it out as Markdown: one .md file per module
+ * (mirroring the source directory structure) plus a root index.md linking
+ * to all of them. No JSON, no parsing - see md_path.c for path
+ * reconstruction, doc_extractor.h for the model itself.
  */
 #include "md_renderer.h"
 
@@ -50,7 +51,7 @@ static void strip_last_ext(char *path) {
  * source path with its extension swapped for .md. Used both as the actual
  * write location and as index.md's link target, so the two can never
  * disagree with each other. */
-static int md_output_relpath(const MdModel *m, size_t file_index, char *out, size_t out_size) {
+static int md_output_relpath(const DxModel *m, size_t file_index, char *out, size_t out_size) {
     char src_path[900];
     if(md_file_path(m, file_index, src_path, sizeof src_path) != 0) return -1;
     strip_last_ext(src_path);
@@ -58,7 +59,7 @@ static int md_output_relpath(const MdModel *m, size_t file_index, char *out, siz
     return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
 }
 
-static void write_param_table(FILE *o, const MdSymbol *s) {
+static void write_param_table(FILE *o, const DxSymbol *s) {
     if(s->param_count == 0) return;
     fputs("\n**Parameters**\n\n| Name | Description |\n|------|-------------|\n", o);
     for(size_t i = 0; i < s->param_count; i++) {
@@ -68,7 +69,7 @@ static void write_param_table(FILE *o, const MdSymbol *s) {
     }
 }
 
-static void write_symbol(FILE *o, const MdSymbol *s, const char *language) {
+static void write_symbol(FILE *o, const DxSymbol *s, const char *language) {
     fputs("<details>\n<summary><strong>", o);
     fputs(s->name ? s->name : "(unnamed)", o);
     fputs("</strong>", o);
@@ -89,8 +90,8 @@ static void write_symbol(FILE *o, const MdSymbol *s, const char *language) {
     fputs("\n</details>\n\n", o);
 }
 
-static int write_module_file(const MdModel *m, size_t file_index, const char *out_dir) {
-    const MdFile *f = &m->files[file_index];
+static int write_module_file(const DxModel *m, size_t file_index, const char *out_dir) {
+    const DxFile *f = &m->files[file_index];
 
     char relpath[900];
     if(md_output_relpath(m, file_index, relpath, sizeof relpath) != 0) return -1;
@@ -119,7 +120,7 @@ static int write_module_file(const MdModel *m, size_t file_index, const char *ou
 /* Recursively prints out_dir's directory/file structure as a nested,
  * linked bullet list - directories in bold, files linking to their
  * rendered .md page. dir_index == -1 is the (possibly virtual) root. */
-static void print_tree(FILE *idx, const MdModel *m, int dir_index, int depth) {
+static void print_tree(FILE *idx, const DxModel *m, int dir_index, int depth) {
     for(size_t i = 0; i < m->dir_count; i++) {
         if(m->dirs[i].parent_index != dir_index) continue;
         for(int d = 0; d < depth; d++) fputs("  ", idx);
@@ -135,7 +136,7 @@ static void print_tree(FILE *idx, const MdModel *m, int dir_index, int depth) {
     }
 }
 
-static int write_index(const MdModel *m, const char *out_dir, const char *title) {
+static int write_index(const DxModel *m, const char *out_dir, const char *title) {
     char path[1200];
     snprintf(path, sizeof path, "%s/index.md", out_dir);
 
@@ -149,7 +150,7 @@ static int write_index(const MdModel *m, const char *out_dir, const char *title)
     return 0;
 }
 
-int md_render(const MdModel *m, const char *out_dir, const char *title) {
+int md_render(const DxModel *m, const char *out_dir, const char *title) {
     mkdir_p(out_dir);
     for(size_t i = 0; i < m->file_count; i++) {
         if(write_module_file(m, i, out_dir) != 0) return -1;
