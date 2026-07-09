@@ -140,19 +140,21 @@ int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
         return 0;
     }
 
-    for(size_t k = 0; k < param_count; k++) {
-        params[k].description = param_descs[k].len > 0 ? param_descs[k].data : NULL;
-    }
-    free(param_descs);
-
     out->name = name_buf.len > 0 ? name_buf.data : NULL;
     out->signature = NULL;
     out->description = brief_buf.len > 0 ? brief_buf.data : NULL;
     out->output = returns_buf.len > 0 ? returns_buf.data : NULL;
     out->diagram = NULL;
     out->notes = notes_buf.len > 0 ? notes_buf.data : NULL;
-    out->input = params;
-    out->inputCount = (int)param_count;
     out->type = NULL;  /* no Java symbol-kind logic yet */
+
+    for(size_t k = 0; k < param_count; k++) {
+        symbol_add_input(out, params[k].name,
+                          param_descs[k].len > 0 ? param_descs[k].data : "");
+        free(params[k].name);
+        free(param_descs[k].data);
+    }
+    free(params);
+    free(param_descs);
     return 1;
 }

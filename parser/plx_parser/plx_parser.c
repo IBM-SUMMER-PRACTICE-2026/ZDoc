@@ -316,11 +316,11 @@ static void build_where_params(const StrList *lines, int firstWhere,
         }
     }
 
-    sym->inputCount = paramCount;
-    sym->input = xmalloc((size_t)paramCount * sizeof(InputParam));
     for (i = 0; i < paramCount; i++) {
-        sym->input[i].name = params[i].name;
-        sym->input[i].description = sb_steal(&params[i].desc);
+        char *desc = sb_steal(&params[i].desc);
+        symbol_add_input(sym, params[i].name, desc);
+        free(params[i].name);
+        free(desc);
     }
     free(params);
 }
@@ -362,23 +362,22 @@ static void build_input_params(const StrList *lines, Symbol *sym,
     }
 
     if (splittable) {
-        sym->input = xmalloc((size_t)lines->count * sizeof(InputParam));
-        sym->inputCount = lines->count;
         for (i = 0; i < lines->count; i++) {
             const char *sep = strstr(lines->items[i], " - ");
-            sym->input[i].name = trim_dup(lines->items[i],
-                                          (size_t)(sep - lines->items[i]));
-            sym->input[i].description = xstrdup(skip_ws(sep + 3));
+            char *name = trim_dup(lines->items[i],
+                                  (size_t)(sep - lines->items[i]));
+            symbol_add_input(sym, name, skip_ws(sep + 3));
+            free(name);
         }
     } else {
         StrBuf joined;
+        char *name;
         sb_init(&joined);
         for (i = 0; i < lines->count; i++)
             sb_join(&joined, lines->items[i]);
-        sym->input = xmalloc(sizeof(InputParam));
-        sym->inputCount = 1;
-        sym->input[0].name = sb_steal(&joined);
-        sym->input[0].description = xstrdup("");
+        name = sb_steal(&joined);
+        symbol_add_input(sym, name, "");
+        free(name);
     }
 }
 

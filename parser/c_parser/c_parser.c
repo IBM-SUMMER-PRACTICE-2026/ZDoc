@@ -1287,23 +1287,9 @@ static Module *result_to_module(cp_result *r, const char *path)
             sy->notes = (char *)cs->doc.notes;
             cs->doc.notes = NULL;
 
-            if (cs->doc.nparams) {
-                sy->input =
-                    (InputParam *)malloc(cs->doc.nparams * sizeof *sy->input);
-                if (sy->input) {
-                    sy->inputCount = (int)cs->doc.nparams;
-                    for (size_t j = 0; j < cs->doc.nparams; j++) {
-                        sy->input[j].name = (char *)cs->doc.params[j].name;
-                        sy->input[j].description =
-                            (char *)cs->doc.params[j].desc;
-                    }
-                    /* strings moved; drop the shell so cp_result_free skips */
-                    free(cs->doc.params);
-                    cs->doc.params = NULL;
-                    cs->doc.nparams = 0;
-                }
-                /* on OOM leave doc.params intact for cp_result_free to reclaim */
-            }
+            for (size_t j = 0; j < cs->doc.nparams; j++)
+                symbol_add_input(sy, cs->doc.params[j].name,
+                                  cs->doc.params[j].desc);
         }
     }
 
