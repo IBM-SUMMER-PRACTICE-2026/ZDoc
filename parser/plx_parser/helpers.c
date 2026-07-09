@@ -15,11 +15,6 @@ char *xstrndup(const char *s, size_t n)
     return d;
 }
 
-char *xstrdup(const char *s)
-{
-    return xstrndup(s, strlen(s));
-}
-
 int str_ieq(const char *a, const char *b)
 {
     while (*a && *b) {

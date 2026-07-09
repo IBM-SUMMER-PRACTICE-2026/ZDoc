@@ -1255,12 +1255,7 @@ static char *dupcstr(const char *s)
  * C-only module doc and has_doc flag have no shared home and are dropped. */
 static Module *result_to_module(cp_result *r, const char *path)
 {
-    Module *m = (Module *)calloc(1, sizeof *m);
-    if (!m) {
-        cp_result_free(r);
-        return NULL;
-    }
-    m->filename = dupcstr(path);
+    Module *m = init_module(path);
 
     if (r->n) {
         m->symbols = (Symbol *)malloc(r->n * sizeof *m->symbols);
@@ -1325,10 +1320,7 @@ Module *cp_parse_file(const char *path)
     if (cp_error(r)) {
         fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, cp_error(r));
         cp_result_free(r);
-        Module *m = (Module *)calloc(1, sizeof *m);
-        if (m)
-            m->filename = dupcstr(path);
-        return m; /* empty module */
+        return init_module(path); /* empty module */
     }
 
     return result_to_module(r, path);
