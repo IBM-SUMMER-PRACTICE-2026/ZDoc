@@ -22,8 +22,8 @@ type_thread create_thread(void (*thread_func)(void)) {
 }
 
 void wait_for_thread(type_thread* working_thread) {
-    WaitForSingleObject(working_thread, INFINITE);
-    CloseHandle(*thread_to_close);
+    WaitForSingleObject(*working_thread, INFINITE);
+    CloseHandle(*working_thread);
 }
 
 #else
