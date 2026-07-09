@@ -16,16 +16,8 @@
 
 #include "../shared/parser_shared.h"
 
-/*
-  Read the text of the Java file and returns a module listing the methods or constructors in it.
-  The file is read and the text is passed as 'src' and the lenght as 'len' without the disk being touched.
-  
-  The return module makes copies of everything so you can free 'src' as it returns.
-  
-  The memory can be released by calling module_free()
 
-*/
-Module java_parse(const char *path, const char *src, size_t len);
+Module *java_parse(const char *path);
 
 // Print a module's symbols in a human-readable layout (see plx_parser demo).
 void java_print_module(const Module *m);

@@ -24,12 +24,43 @@ static void symbol_free(Symbol *y) {
 }
 
 void module_free(Module *m) {
+    if(!m) return;
     for(int s = 0; s < m->symbolCount; s++) symbol_free(&m->symbols[s]);
     free(m->symbols);
     free(m->filename);
-    m->symbols = NULL;
-    m->symbolCount = m->symbolCap = 0;
-    m->filename = NULL;
+    free(m);
+}
+
+// Read a whole file into memory. Returns NULL (and sets *err) on failure so the
+// caller can still emit a valid, empty module and move on to the next file.
+static char *read_file(const char *path, size_t *out_len, const char **err) {
+    *err = NULL;
+    FILE *f = fopen(path, "rb");
+    if(!f) {
+        *err = "could not open file";
+        return NULL;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    if(size < 0) {
+        fclose(f);
+        *err = "could not determine file size";
+        return NULL;
+    }
+    rewind(f);
+
+    char *buf = malloc((size_t)size ? (size_t)size : 1);
+    if(!buf) {
+        fclose(f);
+        *err = "out of memory";
+        return NULL;
+    }
+
+    size_t n = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    *out_len = n;
+    return buf;
 }
 
 // Append a symbol to the module's symbol array. The array's memory is expanded if necessary.
@@ -175,9 +206,20 @@ static char *extract_name(const char *sig) {
     return xstrndup(p, (size_t)(end - p));
 }
 
-Module java_parse(const char *path, const char *src, size_t len) {
-    Module m = {0};
-    m.filename = xstrndup(path, strlen(path));
+Module *java_parse(const char *path) {
+    Module *m = (Module *)calloc(1, sizeof *m);
+    if(!m) return NULL;
+    m->filename = xstrndup(path, strlen(path));
+
+    size_t len;
+    const char *err;
+    char *src = read_file(path, &len, &err);
+    if(!src) {
+        // Report the failure but still return a valid, empty module so the
+        // caller can carry on (mirrors cp_parse_file's behaviour).
+        fprintf(stderr, "zdoc-java-parser: %s: %s\n", path, err);
+        return m;
+    }
 
     size_t line_anchor_pos = 0;
     uint32_t line_anchor_line = 1;
@@ -220,7 +262,7 @@ Module java_parse(const char *path, const char *src, size_t len) {
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
                     sym.line        = line_of(src, sig_start, &line_anchor_pos, &line_anchor_line);
                     sym.type        = classify_type(sym.signature, sym.name);  // "method" or "constructor"
-                    module_push(&m, sym);
+                    module_push(m, sym);
                 } else {
                     symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
                 }
@@ -234,6 +276,7 @@ Module java_parse(const char *path, const char *src, size_t len) {
         i = after_ws > i ? after_ws : i + 1;
     }
 
+    free(src);
     return m;
 }
 
