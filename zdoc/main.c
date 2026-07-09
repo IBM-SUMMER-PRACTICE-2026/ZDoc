@@ -1,4 +1,4 @@
-/* main.c — zdoc CLI entry point: defaults -> zdoc.yaml -> argv -> request. */
+/* main.c - zdoc CLI entry point: defaults -> zdoc.yaml -> argv -> request. */
 #include "options.h"
 #include "config.h"
 #include "cli.h"

@@ -1,4 +1,4 @@
-/* options.h — shared option model for the zdoc CLI.
+/* options.h - shared option model for the zdoc CLI.
    One struct carries every setting from all three sources, applied in
   precedence order: built-in defaults -> zdoc.yaml -> command line
   (see docs/ZDOC.md -> "Configuration File").

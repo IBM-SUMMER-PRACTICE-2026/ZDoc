@@ -37,7 +37,7 @@ static void zd_json_string(FILE *out, const char *s) {
     fputc('"', out);
 }
 
-/* Array of n strings laid out in rows of `stride` bytes — lets one helper
+/* Array of n strings laid out in rows of `stride` bytes - lets one helper
    serve languages, excludes and inputs despite their different row widths. */
 static void zd_json_array(FILE *out, const char *base, size_t stride, int n) {
     int i;

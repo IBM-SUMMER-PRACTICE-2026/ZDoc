@@ -72,7 +72,7 @@ zd_cli_result zd_cli_parse(int argc, char **argv, zd_options *o) {
     int cli_langs_seen = 0, cli_excludes_seen = 0;
     int i;
 
-    if(argc == 1) { //bare "zdoc" — introduce the tool
+    if(argc == 1) { //bare "zdoc" - introduce the tool
         zd_print_about();
         return ZD_CLI_EXIT;
     }

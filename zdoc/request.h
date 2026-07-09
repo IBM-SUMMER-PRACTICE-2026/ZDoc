@@ -1,4 +1,4 @@
-/* request.h — formatting the resolved options as a zdoc daemon request. */
+/* request.h - formatting the resolved options as a zdoc daemon request. */
 #ifndef ZD_REQUEST_H
 #define ZD_REQUEST_H
 
