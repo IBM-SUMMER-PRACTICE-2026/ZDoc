@@ -1,12 +1,12 @@
 /*
-  Walks a parsed HtmlModel and writes it out as a single self-contained
-  index.html: nested <details>/<summary> nodes for directories and files,
-  with per-symbol sections (signature, brief, parameters, returns, notes,
-  block diagram, cross-references).
-  No JSON involved here - see html_model.c for that.
+  Walks a DxModel and writes it out as a single self-contained index.html:
+  nested <details>/<summary> nodes for directories and files, with
+  per-symbol sections (signature, brief, parameters, returns, notes, block
+  diagram, cross-references). No JSON, no parsing - takes the model
+  directly, built elsewhere by doc_extractor.
  */
 #include "html_renderer.h"
-#include "json.h" /* xmalloc */
+#include "../../extractor/doc_extractor/src/xalloc.h" /* xmalloc */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +74,7 @@ typedef struct {
     int dir_root, file_root;
 } adjacency_t;
 //Builds the adjacency table from the model's parent links. The table is stack-allocated by the caller, and its arrays are heap-allocated here.
-static void adjacency_build(adjacency_t *a, const HtmlModel *m) {
+static void adjacency_build(adjacency_t *a, const DxModel *m) {
     a->dir_child  = xmalloc(m->dir_count * sizeof(int));
     a->dir_sib    = xmalloc(m->dir_count * sizeof(int));
     a->file_child = xmalloc(m->dir_count * sizeof(int));
@@ -121,7 +121,7 @@ static void adjacency_free(adjacency_t *a) {
 
 /*Renders a single symbol's documentation section. 
 The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
-static void render_symbol(FILE *o, const HtmlSymbol *s, const char *language) {
+static void render_symbol(FILE *o, const DxSymbol *s, const char *language) {
     fputs("<details class=\"sym\"", o);
     if(s->name && s->name[0]) {
         /* Anchor target for cross-reference links; refs address symbols by
@@ -198,8 +198,8 @@ static void render_symbol(FILE *o, const HtmlSymbol *s, const char *language) {
     fputs("</details>\n", o);
 }
 //Renders a file and its symbols. The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.
-static void render_file(FILE *o, const HtmlModel *m, size_t f) {
-    const HtmlFile *file = &m->files[f];
+static void render_file(FILE *o, const DxModel *m, size_t f) {
+    const DxFile *file = &m->files[f];
     fputs("<li><details class=\"file\"><summary>", o);
     put_escaped(o, file->name ? file->name : "(unnamed)");
     fputs("</summary>\n", o);
@@ -214,7 +214,7 @@ static void render_file(FILE *o, const HtmlModel *m, size_t f) {
 }
 /*Renders a directory and its children recursively. The caller is responsible for
  wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
-static void render_dir(FILE *o, const adjacency_t *a, const HtmlModel *m, int d) {
+static void render_dir(FILE *o, const adjacency_t *a, const DxModel *m, int d) {
     fputs("<li><details class=\"dir\" open><summary>", o);
     put_escaped(o, m->dirs[d].name ? m->dirs[d].name : "(unnamed)");
     fputs("/</summary><ul>\n", o);
@@ -273,7 +273,7 @@ static const char MERMAID_JS[] =
     "run(document);\n";
 
 //Renders the whole model as one self-contained out_dir/index.html (embedded CSS; Mermaid JS is pulled in only when the model carries block diagrams).
-int html_render(const HtmlModel *m, const char *out_dir, const char *title) {
+int html_render(const DxModel *m, const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
     char path[1200];
@@ -287,7 +287,7 @@ int html_render(const HtmlModel *m, const char *out_dir, const char *title) {
     int has_diagram = 0, has_refs = 0;
     for(size_t i = 0; i < m->file_count && !(has_diagram && has_refs); i++) {
         for(size_t k = 0; k < m->files[i].symbol_count; k++) {
-            const HtmlSymbol *s = &m->files[i].symbols[k];
+            const DxSymbol *s = &m->files[i].symbols[k];
             if(s->diagram && s->diagram[0]) has_diagram = 1;
             if(s->ref_count > 0) has_refs = 1;
         }
