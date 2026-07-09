@@ -1,0 +1,5 @@
+/zdoc
+/zdoc.exe
+*.o
+# Stray file some shells create from the Makefile's `2>NUL` redirect.
+NUL

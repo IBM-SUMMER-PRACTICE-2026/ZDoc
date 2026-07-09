@@ -1,0 +1,6 @@
+# The test harness is a POSIX shell script and its golden files are compared
+# line-for-line; CRLF would break the shebang and the diffs. Force LF on
+# checkout everywhere, regardless of core.autocrlf.
+*.sh          text eol=lf
+*.args        text eol=lf
+expected/*.txt text eol=lf

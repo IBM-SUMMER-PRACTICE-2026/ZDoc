@@ -1,0 +1,18 @@
+
+
+  [c     ] src/a.c
+  [c     ] src/tests/skip.c
+  bob-args:      (none)
+  bob-cli:       bob
+  exclude:       (none)
+  languages:     c
+  mode:          offline
+  no-source:     no
+  out-dir:       ./zdoc-out
+  output-format: md
+  recursive:     yes
+  sources:       src
+  title:         (none)
+Discovered source files:
+Total: 2 file(s). (dry run - pipeline not yet wired in)
+ZDoc - resolved configuration

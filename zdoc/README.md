@@ -7,8 +7,13 @@ calls [bob_client](../ai/bob_client/) (AI mode), and drives the selected
 [renderer](../renderer/).
 
 - **Layer:** CLI (top of the tree)
-- **Planned binary:** `zdoc`
-- **Status:** Planned
+- **Binary:** `zdoc`
+- **Status:** In progress — the CLI front-end (option/tag parsing + `zdoc.yaml`
+  loading + source-file discovery) is implemented. It currently runs as a **dry
+  run**: it resolves the configuration, discovers the files that would be
+  processed, prints both, and exits. Wiring the resolved options into the parse
+  → extract → render pipeline (owned by the parser/renderer components) is the
+  remaining step.
 
 ## Pipeline
 
@@ -17,7 +22,19 @@ source files → <lang>_parser → doc_extractor → [bob_client (--mode ai)] �
 ```
 
 The parser is chosen per file by extension (see the table in
-[`../parser/README.md`](../parser/README.md)).
+[`../parser/README.md`](../parser/README.md)). The CLI resolves options and
+discovers the files today; the stages after discovery are not yet connected.
+
+## Source layout
+
+| File                | Purpose                                                        |
+|---------------------|----------------------------------------------------------------|
+| `cli.h` / `cli.c`   | `ZdocOptions` model, tag parsing, validation, language table   |
+| `config.c`          | `zdoc.yaml` (subset) loader                                     |
+| `glob.c` / `glob.h` | `--exclude` glob matcher (`*`, `?`, `**`)                       |
+| `main.c`            | Wiring: defaults → config → args → validate → discover (dry run)|
+
+Precedence: **defaults < `./zdoc.yaml` < command-line flags.**
 
 ## Usage
 
