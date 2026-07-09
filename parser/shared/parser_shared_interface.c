@@ -41,15 +41,6 @@ char *xstrdup(const char *s)
 /*********************************************/
 /*             INPUT PARAMS                  */
 /*********************************************/
-void symbol_add_input(Symbol *sym, const char *name, const char *description) {
-    sym->input = xrealloc(sym->input,
-                           (size_t)(sym->inputCount + 1) * sizeof(InputParam));
-    sym->input[sym->inputCount].name = xstrdup(name);
-    sym->input[sym->inputCount].description = xstrdup(description);
-    sym->inputCount++;
-}
-
-
 void free_input_param_content(InputParam *param) {
     free(param->name);
     free(param->description);
@@ -60,6 +51,15 @@ void free_input_param_content(InputParam *param) {
 /*********************************************/
 /*                 SYMBOL                    */
 /*********************************************/
+void symbol_add_input(Symbol *sym, const char *name, const char *description) {
+    sym->input = xrealloc(sym->input,
+                           (size_t)(sym->inputCount + 1) * sizeof(InputParam));
+    sym->input[sym->inputCount].name = xstrdup(name);
+    sym->input[sym->inputCount].description = xstrdup(description);
+    sym->inputCount++;
+}
+
+
 void free_symbol_content(Symbol * sym) {
     free(sym->name);
     free(sym->description);
@@ -91,11 +91,9 @@ Module * init_module(const char *path) {
 
 void free_module(Module *mod)
 {
-    int i, j;
-
     if (!mod)
         return;
-    for (i = 0; i < mod->symbolCount; i++) {
+    for (int i = 0; i < mod->symbolCount; i++) {
         free_symbol_content(&mod->symbols[i]);
     }
     free(mod->symbols);
