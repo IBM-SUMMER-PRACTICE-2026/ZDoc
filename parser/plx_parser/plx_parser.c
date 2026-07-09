@@ -618,7 +618,7 @@ Module *plx_parse_file(const char *path)
         return NULL;
     }
 
-    Module *mod;
+    Module *mod = init_module(path);
     DocBlock blk;
     char line[MAX_LINE];
     int lineNo = 0;
@@ -629,12 +629,6 @@ Module *plx_parse_file(const char *path)
     StrBuf sig;
     char *sigProc = NULL;
     int procLine = 0; /* line the PROC/ProcEntry was matched on */
-
-    mod = xmalloc(sizeof(Module));
-    mod->filename = xstrdup(path);
-    mod->symbols = NULL;
-    mod->symbolCount = 0;
-    mod->symbolCap = 0;
 
     block_init(&blk);
     sb_init(&sig);

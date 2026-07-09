@@ -190,9 +190,7 @@ static char *extract_name(const char *sig) {
 }
 
 Module *java_parse(const char *path) {
-    Module *m = (Module *)calloc(1, sizeof *m);
-    if(!m) return NULL;
-    m->filename = xstrndup(path, strlen(path));
+    Module *m = init_module(path);
 
     size_t len;
     const char *err;

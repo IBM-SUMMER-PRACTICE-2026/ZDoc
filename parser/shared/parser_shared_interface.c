@@ -28,6 +28,30 @@ void *xrealloc(void *p, size_t n)
     return p;
 }
 
+char *xstrdup(const char *s)
+{
+    size_t n = strlen(s) + 1;
+    char *p = xmalloc(n);
+    memcpy(p, s, n);
+    return p;
+}
+
+
+
+/*********************************************/
+/*                MODULE                     */
+/*********************************************/
+Module * init_module(const char *path) {
+    Module * mod = xmalloc(sizeof(Module));
+    mod->filename = xstrdup(path);
+    mod->symbols = NULL;
+    mod->symbolCount = 0;
+    mod->symbolCap = 0;
+    return mod;
+}
+
+
+
 /*********************************************/
 /*            OUTPUT / CLEANUP               */
 /*********************************************/

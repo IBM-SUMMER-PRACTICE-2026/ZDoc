@@ -6,7 +6,6 @@
 
 /* Allocation wrappers that abort on out-of-memory (defined in parser_shared_interface.c). */
 char *xstrndup(const char *s, size_t n);
-char *xstrdup(const char *s);
 
 /* Case-insensitive string comparison (full / first n chars). */
 int str_ieq(const char *a, const char *b);

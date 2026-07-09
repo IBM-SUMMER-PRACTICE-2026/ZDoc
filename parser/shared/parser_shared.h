@@ -54,6 +54,13 @@ typedef struct Module {
 int init_resources();
 
 
+
+/*********************************************/
+/*                MODULE                     */
+/*********************************************/
+Module * init_module(const char *path);
+
+
 /*********************************************/
 /*            OUTPUT / CLEANUP               */
 /*********************************************/
@@ -66,6 +73,7 @@ void module_shrink_to_fit(Module *mod);
 
 void *xmalloc(size_t n);
 void *xrealloc(void *p, size_t n);
+char *xstrdup(const char *s);
 
 
 #endif
