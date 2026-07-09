@@ -9,7 +9,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "helpers.h"
+#include "str_helpers.h"
 #include "plx_parser.h"
 #include "../shared/parser_shared.h"
 

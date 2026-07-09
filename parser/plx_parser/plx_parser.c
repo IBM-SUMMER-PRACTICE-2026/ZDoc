@@ -11,7 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "helpers.h"
+#include "str_helpers.h"
+#include "parser_helpers.h"
 #include "plx_parser.h"
 
 /*
