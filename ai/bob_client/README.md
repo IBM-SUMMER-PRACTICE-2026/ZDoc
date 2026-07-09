@@ -36,19 +36,26 @@ closure threads that needle:
    sections.
 
 The result composes directly with `bob_diagram()` (next section): the closure
-produces the `--snippet`, `bc_lang_display()` produces the `--lang`.
+produces the snippet that becomes Bob's prompt, `bc_lang_display()` names the
+language.
 
 ## Bob invocation
 
-The snippet is passed as a single `execvp` argument — never through a shell — so
-source code with quotes or newlines needs no escaping and cannot inject a command:
+Real Bob ("Bob Shell") is a one-shot **prompt agent**, not a structured tool —
+there is no `explain --diagram` subcommand. The snippet is delivered as the
+prompt, passed as a single `execvp` argument (never through a shell, so source
+with quotes or newlines needs no escaping and cannot inject a command):
 
 ```
-bob explain --diagram --brief --lang <language> --snippet <function_source>
+bob -o text --chat-mode ask -y "<short instruction>\n\n<DOC/DECLARATIONS/CALLEES/FUNCTION snippet>"
 ```
 
-- Bob's behaviour is defined by the [`zdoc-diagram` skill](../../.bob/skills/zdoc-diagram/):
-  it returns one Mermaid `flowchart` block per symbol.
+- The **output contract lives in the [`zdoc-diagram` Bob extension](../../.bob/extensions/zdoc-diagram/)**
+  (`bob-extension.json` + `context.md` + `examples/`), which must be linked into
+  Bob so its context shapes the answer: `bob extensions link .bob/extensions/zdoc-diagram`.
+  The model returns one Mermaid `flowchart` block per symbol.
+- `-o text` prints the final answer; `--chat-mode ask -y` keeps it read-only and
+  non-interactive.
 - Diagrams are **brief** — one box per logical step, not per source line.
 - The response is sanitized before use: the `flowchart` block is extracted from
   any surrounding prose/fence, and code fences, backticks, and stray control
