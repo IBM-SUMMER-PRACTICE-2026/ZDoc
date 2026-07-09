@@ -53,4 +53,12 @@ typedef struct Module {
 
 int init_resources();
 
+
+/*********************************************/
+/*            OUTPUT / CLEANUP               */
+/*********************************************/
+void print_module(const Module *mod);
+void free_module(Module *mod);
+
+
 #endif

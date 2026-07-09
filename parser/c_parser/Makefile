@@ -1,4 +1,4 @@
-CFLAGS  ?= -O3 -std=c11 -Wall -Wextra -Wpedantic
+CFLAGS  ?= -O3 -std=c11 -Wall -Wextra -Wpedantic -I../shared
 
 
 ifeq ($(OS),Windows_NT)
@@ -26,7 +26,7 @@ else
     fixpath = $1
 endif
 
-OBJS    = c_parser.o main.o
+OBJS    = c_parser.o main.o parser_shared_interface.o
 
 SHARED_H = ../shared/parser_shared.h ../../extractor/doc_extractor/module_tree/modtree_tables.h
 
@@ -37,6 +37,8 @@ $(BIN): $(OBJS)
 
 c_parser.o: c_parser.c c_parser.h $(SHARED_H)
 main.o: main.c c_parser.h $(SHARED_H)
+parser_shared_interface.o: ../shared/parser_shared_interface.c $(SHARED_H)
+	$(CC) $(CFLAGS) -c -o $@ ../shared/parser_shared_interface.c
 
 test: $(BIN)
 	$(RUN) tests/sample.c tests/sample.cpp

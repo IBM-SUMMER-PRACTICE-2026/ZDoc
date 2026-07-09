@@ -23,14 +23,6 @@ static void symbol_free(Symbol *y) {
     free(y->input);
 }
 
-void module_free(Module *m) {
-    if(!m) return;
-    for(int s = 0; s < m->symbolCount; s++) symbol_free(&m->symbols[s]);
-    free(m->symbols);
-    free(m->filename);
-    free(m);
-}
-
 // Read a whole file into memory. Returns NULL (and sets *err) on failure so the
 // caller can still emit a valid, empty module and move on to the next file.
 static char *read_file(const char *path, size_t *out_len, const char **err) {
@@ -278,38 +270,4 @@ Module *java_parse(const char *path) {
 
     free(src);
     return m;
-}
-
-// Render a possibly-NULL string as "(null)" so every field prints.
-static const char *or_null(const char *s) {
-    return s ? s : "(null)";
-}
-
-// Human-readable dump of a parsed module, mirroring the plx_parser demo layout.
-void java_print_module(const Module *m) {
-    printf("Module: %s\n", or_null(m->filename));
-    printf("Documented methods/constructors: %d\n", m->symbolCount);
-
-    for(int i = 0; i < m->symbolCount; i++) {
-        const Symbol *s = &m->symbols[i];
-
-        printf("\n[%d] %s\n", i + 1, or_null(s->name));
-        printf("    Name       : %s\n", or_null(s->name));
-        printf("    Signature  : %s\n", or_null(s->signature));
-        printf("    Line       : %u\n", s->line);
-        printf("    Brief      : %s\n", or_null(s->description));
-        printf("    Returns    : %s\n", or_null(s->output));
-        printf("    Notes      : %s\n", or_null(s->notes));
-        printf("    Type       : %s\n", or_null(s->type));
-        printf("    Diagram    : %s\n", or_null(s->diagram));
-        printf("    Params (%d) :", s->inputCount);
-        if(s->inputCount == 0) {
-            printf(" (none)\n");
-        } else {
-            printf("\n");
-            for(int j = 0; j < s->inputCount; j++)
-                printf("      - %s - %s\n", or_null(s->input[j].name),
-                       or_null(s->input[j].description));
-        }
-    }
 }

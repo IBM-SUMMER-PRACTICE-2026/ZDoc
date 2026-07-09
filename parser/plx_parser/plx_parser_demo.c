@@ -11,6 +11,7 @@
 
 #include "helpers.h"
 #include "plx_parser.h"
+#include "../shared/parser_shared.h"
 
 static int has_known_extension(const char *path)
 {
