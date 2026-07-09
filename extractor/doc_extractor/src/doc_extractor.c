@@ -1,163 +1,119 @@
 /*
- * doc_extractor's core orchestration: walk the project directory (via
- * module_tree), group files by which parser binary handles them (bin_group.c),
- * resolve each file's disk path (path_build.c), run each group's parser in
- * chunks across a thread pool (thread_pool.c) instead of once per file, and
- * assemble the combined DxModel. dx_write.c handles emitting the result.
+ * doc_extractor's core logic: convert an already-walked module tree plus an
+ * already-parsed array of modules into the combined DxModel. No walking, no
+ * parsing, no calling into any parser - see doc_extractor.h.
  */
 #include "doc_extractor.h"
-#include "child_parser.h"
-#include "json_read.h"
-#include "bin_group.h"
-#include "path_build.h"
-#include "thread_pool.h"
-#include "module_tree/fs_walk.h"
-#include "module_tree/modtree_tables.h"
+#include "xalloc.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* Language is derived from the file's own extension, independently of
+ * whether a parsed module matched it - a tiny local table, not tied to any
+ * parser binary or source. */
+typedef struct { const char *ext; const char *language; } LangEntry;
+
+static const LangEntry LANGUAGES[] = {
+    { ".java", "java" },
+    { ".c",    "c" },
+    { ".h",    "c" },
+    { ".cpp",  "cpp" },
+    { ".cxx",  "cpp" },
+    { ".cc",   "cpp" },
+    { ".hpp",  "cpp" },
+    { ".plx",  "plx" },
+    { ".pls",  "plx" },
+    { ".plas", "plas" },
+};
+#define LANGUAGE_COUNT (sizeof LANGUAGES / sizeof *LANGUAGES)
+
+static const char *language_for_name(const char *filename) {
+    const char *dot = strrchr(filename, '.');
+    if(!dot) return NULL;
+    for(size_t i = 0; i < LANGUAGE_COUNT; i++)
+        if(strcmp(dot, LANGUAGES[i].ext) == 0) return LANGUAGES[i].language;
+    return NULL;
+}
+
 /* strdup isn't ISO C (it's POSIX) and -std=c11 can hide its declaration
  * depending on the platform's libc, so use our own instead of relying on it. */
-static char *xstrdup(const char *s) {
+static char *dx_strdup(const char *s) {
+    if(!s) return NULL;
     size_t n = strlen(s);
     char *p = xmalloc(n + 1);
     memcpy(p, s, n + 1);
     return p;
 }
 
-/* --------------------------------------------------------------- dx_build */
+static void convert_symbol(const Symbol *src, DxSymbol *dst) {
+    memset(dst, 0, sizeof *dst);
+    dst->kind      = dx_strdup(src->type);
+    dst->line      = src->line;
+    dst->name      = dx_strdup(src->name);
+    dst->signature = dx_strdup(src->signature);
+    dst->brief     = dx_strdup(src->description);
+    dst->returns   = dx_strdup(src->output);
+    dst->notes     = dx_strdup(src->notes);
 
-int dx_build(const char *root_dir, const char *parser_dir, DxModel *out, int print_stats) {
+    if(src->inputCount > 0) {
+        dst->params = xmalloc((size_t)src->inputCount * sizeof(DxParam));
+        dst->param_count = (size_t)src->inputCount;
+        for(int i = 0; i < src->inputCount; i++) {
+            dst->params[i].name = dx_strdup(src->input[i].name);
+            dst->params[i].desc = dx_strdup(src->input[i].description);
+        }
+    }
+}
+
+/* Finds the already-parsed module whose filename matches path, or NULL if
+ * no module in the array corresponds to it. */
+static const Module *find_module(const Module *modules, size_t module_count, const char *path) {
+    for(size_t i = 0; i < module_count; i++)
+        if(modules[i].filename && strcmp(modules[i].filename, path) == 0) return &modules[i];
+    return NULL;
+}
+
+int dx_build_from_parsed(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                          const Module *modules, size_t module_count, DxModel *out) {
     memset(out, 0, sizeof *out);
 
-    modtree_dir_table_t dirs;
-    modtree_file_table_t files;
-    modtree_dir_table_init(&dirs);
-    modtree_file_table_init(&files);
-
-    size_t lang_count = lang_table_count();
-    const char *extensions[32];
-    if(lang_count > sizeof extensions / sizeof *extensions)
-        lang_count = sizeof extensions / sizeof *extensions;
-    for(size_t i = 0; i < lang_count; i++) extensions[i] = lang_table_entry(i)->ext;
-
-    if(fs_walk(root_dir, &dirs, &files, extensions, lang_count) != 0) {
-        modtree_dir_table_free(&dirs);
-        modtree_file_table_free(&files);
-        return 0;
+    out->dirs = xmalloc(dirs->count ? dirs->count * sizeof(DxDir) : 1);
+    for(size_t i = 0; i < dirs->count; i++) {
+        out->dirs[i].name = dx_strdup(dirs->dirs[i].name);
+        out->dirs[i].parent_index = dirs->dirs[i].parent_index;
     }
+    out->dir_count = dirs->count;
 
-    out->dirs = xmalloc(dirs.count ? dirs.count * sizeof(DxDir) : 1);
-    for(size_t i = 0; i < dirs.count; i++) {
-        out->dirs[i].name = dirs.dirs[i].name ? xstrdup(dirs.dirs[i].name) : NULL;
-        out->dirs[i].parent_index = dirs.dirs[i].parent_index;
-    }
-    out->dir_count = dirs.count;
+    out->file_count = files->count;
+    out->files = xmalloc(files->count ? files->count * sizeof(DxFile) : 1);
 
-    out->file_count = files.count;
-    out->files = xmalloc(files.count ? files.count * sizeof(DxFile) : 1);
-    const LangEntry **file_lang = xmalloc(files.count ? files.count * sizeof(LangEntry *) : 1);
-    char **file_path = xmalloc(files.count ? files.count * sizeof(char *) : 1);
-
-    BinGroup *groups = NULL;
-    size_t group_count = 0, group_cap = 0;
-
-    /* Pass 1: fill in each file's own fields, resolve its disk path, and
-     * group it by which parser binary should handle it - no parser is run
-     * yet, this just prepares the batches. */
-    for(size_t i = 0; i < files.count; i++) {
+    for(size_t i = 0; i < files->count; i++) {
         DxFile *f = &out->files[i];
         memset(f, 0, sizeof *f);
-        f->name = files.files[i].name ? xstrdup(files.files[i].name) : NULL;
-        f->parent_dir_index = files.files[i].parent_dir_index;
+        f->name = dx_strdup(files->files[i].name);
+        f->parent_dir_index = files->files[i].parent_dir_index;
         f->error = 1; /* pessimistic default, cleared only on a successful match below */
 
-        file_lang[i] = f->name ? lang_for_ext(f->name) : NULL;
-        file_path[i] = NULL;
+        const char *lang = f->name ? language_for_name(f->name) : NULL;
+        if(!lang) continue;
+        f->language = dx_strdup(lang);
 
-        if(file_lang[i]) {
-            /* language is known from the file's own extension - set it now
-             * rather than waiting on the parser to echo it back, so it's
-             * always present even if that file's parser invocation fails. */
-            f->language = xstrdup(file_lang[i]->language);
+        char path[2048];
+        if(modtree_file_path(dirs, files, (int)i, path, sizeof path) != 0) continue;
 
-            char full_path[2048];
-            if(build_disk_path(&dirs, f->parent_dir_index, root_dir, f->name, full_path, sizeof full_path) == 0) {
-                file_path[i] = xstrdup(full_path);
-                BinGroup *g = bin_group_find_or_create(&groups, &group_count, &group_cap, file_lang[i]->parser_bin);
-                bin_group_add(g, i);
-            }
-        }
+        const Module *mod = find_module(modules, module_count, path);
+        if(!mod) continue; /* no parsed module for this file - stays error = 1 */
+
+        DxSymbol *symbols = mod->symbolCount
+            ? xmalloc((size_t)mod->symbolCount * sizeof(DxSymbol)) : NULL;
+        for(int k = 0; k < mod->symbolCount; k++)
+            convert_symbol(&mod->symbols[k], &symbols[k]);
+
+        f->symbols = symbols;
+        f->symbol_count = (size_t)mod->symbolCount;
+        f->error = 0;
     }
-
-    modtree_dir_table_free(&dirs);
-    modtree_file_table_free(&files);
-
-    /* Pass 2: build all chunks across all groups into a flat work queue,
-     * then run them all through the thread pool. Pre-building avoids
-     * allocating inside threaded code. */
-
-    /* 2a: count total chunks so we can allocate once. One chunk_size is
-     * computed once here (targeting one chunk per core across the COMBINED
-     * file count of every group) and reused for every group below - see
-     * chunk_pool_compute_chunk_size(). */
-    size_t total_matched_files = 0;
-    for(size_t g = 0; g < group_count; g++) total_matched_files += groups[g].count;
-    const size_t chunk_size = chunk_pool_compute_chunk_size(total_matched_files);
-
-    size_t total_chunks = 0;
-    for(size_t g = 0; g < group_count; g++)
-        total_chunks += (groups[g].count + chunk_size - 1) / chunk_size;
-
-    if(print_stats) {
-        size_t cores = chunk_pool_cpu_count();
-        fprintf(stderr, "zdoc-doc-extractor stats: %zu core%s detected, chunk size %zu, "
-                        "%zu file%s across %zu language group%s -> %zu chunk%s "
-                        "(%zu round%s through the pool)\n",
-                cores, cores == 1 ? "" : "s", chunk_size,
-                total_matched_files, total_matched_files == 1 ? "" : "s",
-                group_count, group_count == 1 ? "" : "s",
-                total_chunks, total_chunks == 1 ? "" : "s",
-                (total_chunks + cores - 1) / (cores ? cores : 1),
-                (total_chunks + cores - 1) / (cores ? cores : 1) == 1 ? "" : "s");
-        for(size_t g = 0; g < group_count; g++) {
-            size_t n_chunks = (groups[g].count + chunk_size - 1) / chunk_size;
-            fprintf(stderr, "  %-24s %6zu file%s -> %3zu chunk%s\n",
-                    groups[g].parser_bin, groups[g].count, groups[g].count == 1 ? "" : "s",
-                    n_chunks, n_chunks == 1 ? "" : "s");
-        }
-    }
-
-    ChunkWork *work = xmalloc(total_chunks ? total_chunks * sizeof(ChunkWork) : 1);
-    size_t wi = 0;
-
-    /* 2b: fill in each ChunkWork item, group by group. */
-    for(size_t g = 0; g < group_count; g++)
-        bin_group_build_chunks(&groups[g], file_lang, (const char *const *)file_path,
-                                out->files, parser_dir, chunk_size, work, &wi);
-
-    /* 2c: dispatch across the thread pool and wait for everything to finish. */
-    chunk_pool_run(work, total_chunks);
-
-    /* 2d: anything still marked error (whole invocation failed, or this
-     * file's module was missing from the reply) keeps f->error = 1 from
-     * pass 1 - language is already set from pass 1 regardless, so nothing
-     * else to backfill here. */
-    for(size_t g = 0; g < group_count; g++) free(groups[g].file_indices);
-    free(groups);
-
-    /* Free chunk work arrays. */
-    for(size_t i = 0; i < total_chunks; i++) {
-        free(work[i].paths);
-        free(work[i].targets);
-    }
-    free(work);
-
-    for(size_t i = 0; i < out->file_count; i++) free(file_path[i]);
-    free(file_path);
-    free((void *)file_lang);
 
     return 1;
 }

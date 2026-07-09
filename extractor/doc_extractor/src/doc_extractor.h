@@ -1,8 +1,14 @@
 /*
- * ZDoc doc_extractor — walks a project directory, invokes the right
- * language parser on every source file it finds, and combines the results
- * into one documentation model: the directory/file tree plus each file's
- * documented symbols.
+ * ZDoc doc_extractor — converts an already-parsed set of source files into
+ * the combined documentation model (directory/file tree plus each file's
+ * documented symbols), and writes it out as JSON.
+ *
+ * doc_extractor does no walking and no parsing of its own - that's done
+ * elsewhere (the daemon: walks the tree via module_tree, runs the right
+ * parser on every file, and produces one Module per successfully parsed
+ * file). doc_extractor's job starts after that: given the already-built
+ * module_tree tables and that array of parsed Module entries, assemble the
+ * final DxModel and emit it.
  */
 #ifndef ZDOC_DOC_EXTRACTOR_H
 #define ZDOC_DOC_EXTRACTOR_H
@@ -10,6 +16,42 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include "module_tree/modtree_tables.h"
+
+/* The shape doc_extractor expects its already-parsed input in. This
+ * mirrors parser/shared/parser_shared.h's Module/Symbol/InputParam - the
+ * shared contract every parser now emits, populated by whatever walked the
+ * tree and ran the parsers (the daemon) before calling into this code.
+ * Defined locally here, rather than including that header directly, so
+ * doc_extractor doesn't depend on any file under parser/ - only on this
+ * documented shape staying in agreement with it. */
+typedef struct {
+    char *name;
+    char *description;
+} InputParam;
+
+typedef struct {
+    char       *name;
+    char       *description;
+    char       *signature;
+    InputParam *input;
+    int         inputCount;
+    char       *output;
+    char       *notes;
+    uint32_t    line;
+    char       *type;
+    char       *diagram;
+} Symbol;
+
+typedef struct {
+    char   *filename;
+    Symbol *symbols;
+    int     symbolCount;
+    int     symbolCap;
+} Module;
+
+/* --------------------------------------------------------- output model */
 
 typedef struct {
     char *name;
@@ -39,7 +81,7 @@ typedef struct {
     char     *language;
     DxSymbol *symbols;
     size_t    symbol_count;
-    int       error;            /* 1 if this file's parser couldn't be run or failed */
+    int       error;            /* 1 if no parsed module matched this file */
 } DxFile;
 
 typedef struct {
@@ -49,24 +91,21 @@ typedef struct {
     size_t  file_count;
 } DxModel;
 
-/* Walks root_dir, runs the appropriate parser binary on every recognized
- * source file, and fills *out with the combined result. parser_dir, if
- * non-NULL, is searched for parser binaries instead of relying on PATH.
- * A single file's parser failing does not fail the whole build - that
- * file's DxFile.error is set to 1 instead. Returns 1 on success, 0 if
- * root_dir itself could not be walked at all.
- *
- * If print_stats is non-zero, the chunking plan (detected core count,
- * chosen chunk size, and each language group's file/chunk counts) is
- * printed to stderr before parsing starts - stderr so it never corrupts
- * the JSON model on stdout. */
-int dx_build(const char *root_dir, const char *parser_dir, DxModel *out, int print_stats);
+/* Builds *out from an already-walked module tree (dirs/files) and an
+ * already-parsed array of modules (modules[0..module_count)). Each module
+ * is matched back to the file that produced it by comparing its filename
+ * against that file's own reconstructed path (modtree_file_path on dirs/
+ * files) - a file with no matching module entry (parsing failed, was
+ * skipped, or hasn't run yet) keeps DxFile.error = 1 and empty symbols.
+ * language is derived from each file's own extension, independently of
+ * whether a module matched, so it's always set. Always returns 1. */
+int dx_build_from_parsed(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                          const Module *modules, size_t module_count, DxModel *out);
 
 void dx_free(DxModel *m);
 
 /* Frees a DxSymbol's string/array fields without freeing the struct itself
- * (it usually lives inside an array). Shared by dx_free and child_parser's
- * batch-output cleanup path on a partially-parsed/unmatched module. */
+ * (it usually lives inside an array). */
 void dx_free_symbol(DxSymbol *s);
 
 /* Writes *m to o as the combined documentation-model JSON. */
