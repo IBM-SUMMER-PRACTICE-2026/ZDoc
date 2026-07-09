@@ -18,9 +18,9 @@ static int emit_module(const char *path) {
         return 1;
     }
 
-    java_print_module(m);
-
-    module_free(m);
+    print_module(m);
+    free_module(m);
+    
     return 0;
 }
 

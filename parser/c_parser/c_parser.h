@@ -62,13 +62,10 @@ cp_result *cp_parse_buffer(const char *src, size_t len);
 cp_result *cp_parser(const char *path);
 
 /* Read and parse a file into the shared Module (parser_shared.h). Returns a
- * heap Module the caller releases with cp_free_module(). On a parse/IO error,
+ * heap Module the caller releases with free_module(). On a parse/IO error,
  * prints to stderr and returns an empty Module (symbolCount 0). Returns NULL
  * only on allocation failure. */
 struct Module *cp_parse_file(const char *path);
-
-/* Free a Module produced by cp_parse_file() and all its contents. */
-void cp_free_module(struct Module *m);
 
 /* Symbols in source order. Valid until cp_result_free(). */
 const cp_symbol *cp_symbols(const cp_result *r, size_t *count);

@@ -1333,27 +1333,3 @@ Module *cp_parse_file(const char *path)
 
     return result_to_module(r, path);
 }
-
-void cp_free_module(Module *m)
-{
-    if (!m)
-        return;
-    for (int i = 0; i < m->symbolCount; i++) {
-        Symbol *s = &m->symbols[i];
-        free(s->name);
-        free(s->signature);
-        free(s->description);
-        free(s->output);
-        free(s->notes);
-        free(s->type);
-        free(s->diagram);
-        for (int j = 0; j < s->inputCount; j++) {
-            free(s->input[j].name);
-            free(s->input[j].description);
-        }
-        free(s->input);
-    }
-    free(m->symbols);
-    free(m->filename);
-    free(m);
-}

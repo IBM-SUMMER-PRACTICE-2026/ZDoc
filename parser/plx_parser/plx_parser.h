@@ -42,7 +42,5 @@ typedef struct {
 #define PLX_COMMENT_LINE_WIDTH 71
 
 Module *plx_parse_file(const char *path);
-void plx_print_module(const Module *mod);
-void plx_free_module(Module *mod);
 
 #endif
