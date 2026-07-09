@@ -50,6 +50,7 @@ typedef struct {
     Symbol *symbols;
     int     symbolCount;
     int     symbolCap;
+    int     pathIndex; /* index into the file table this module was parsed from */
 } Module;
 
 /* --------------------------------------------------------- output model */
@@ -97,12 +98,13 @@ typedef struct {
 
 /* Builds *out from an already-walked module tree (dirs/files) and an
  * already-parsed array of modules (modules[0..module_count)). Each module
- * is matched back to the file that produced it by comparing its filename
- * against that file's own reconstructed path (modtree_file_path on dirs/
- * files) - a file with no matching module entry (parsing failed, was
- * skipped, or hasn't run yet) keeps DxFile.error = 1 and empty symbols.
- * language is derived from each file's own extension, independently of
- * whether a module matched, so it's always set. Always returns 1. */
+ * is matched back to the file that produced it via pathIndex - the file
+ * table index the caller (the daemon) stamped onto it while parsing - not
+ * by any string comparison. A file with no matching module entry (parsing
+ * failed, was skipped, or hasn't run yet) keeps DxFile.error = 1 and empty
+ * symbols. language is derived from each file's own extension,
+ * independently of whether a module matched, so it's always set. Always
+ * returns 1. */
 int dx_build_from_parsed(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                           const Module *modules, size_t module_count, DxModel *out);
 

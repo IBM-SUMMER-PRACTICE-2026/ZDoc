@@ -70,14 +70,6 @@ static void convert_symbol(const Symbol *src, DxSymbol *dst) {
     }
 }
 
-/* Finds the already-parsed module whose filename matches path, or NULL if
- * no module in the array corresponds to it. */
-static const Module *find_module(const Module *modules, size_t module_count, const char *path) {
-    for(size_t i = 0; i < module_count; i++)
-        if(modules[i].filename && strcmp(modules[i].filename, path) == 0) return &modules[i];
-    return NULL;
-}
-
 int dx_build_from_parsed(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                           const Module *modules, size_t module_count, DxModel *out) {
     memset(out, 0, sizeof *out);
@@ -103,11 +95,9 @@ int dx_build_from_parsed(const modtree_dir_table_t *dirs, const modtree_file_tab
         if(!lang) continue;
         f->language = dx_strdup(lang);
 
-        char path[2048];
-        if(modtree_file_path(dirs, files, (int)i, path, sizeof path) != 0) continue;
-
-        const Module *mod = find_module(modules, module_count, path);
-        if(!mod) continue; /* no parsed module for this file - stays error = 1 */
+        if(i >= module_count) continue; /* no parsed module for this file - stays error = 1 */
+        const Module *mod = &modules[i];
+        if(!mod->filename || mod->pathIndex != (int)i) continue;
 
         DxSymbol *symbols = mod->symbolCount
             ? xmalloc((size_t)mod->symbolCount * sizeof(DxSymbol)) : NULL;
