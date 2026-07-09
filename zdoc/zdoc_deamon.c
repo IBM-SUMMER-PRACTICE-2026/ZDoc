@@ -42,7 +42,12 @@ void thread_func() {
         }
 
         char* path = paths_look_up[curr_possition_in_arry];
-        modtree_file_path(&global_dir_table, &global_file_table, curr_possition_in_arry, path, 4096);
+        int prefix_len = snprintf(path, 4096, "%s/", fs_walk_root_prefix);
+        if (prefix_len < 0 || prefix_len >= 4096) {
+            continue;
+        }
+        modtree_file_path(&global_dir_table, &global_file_table,
+                          curr_possition_in_arry, path + prefix_len, 4096 - prefix_len);
 
         char* shrunk = realloc(path, strlen(path) + 1);
         if (shrunk != NULL) {

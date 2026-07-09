@@ -50,6 +50,7 @@ SRCS = zdoc_deamon.c \
        $(PARSER)/parser_interface.c \
        $(SHARED)/parser_shared.c \
        $(MODTREE)/fs_walk.c \
+       $(MODTREE)/path_interface.c \
        $(MODTREE)/modtree_table.c \
        $(PLX)/plx_parser.c \
        $(PLX)/helpers.c \
@@ -61,6 +62,7 @@ SRCS = zdoc_deamon.c \
 HDRS = $(PARSER)/parser_interface.h \
        $(SHARED)/parser_shared.h \
        $(MODTREE)/fs_walk.h \
+       $(MODTREE)/path_interface.h \
        $(MODTREE)/modtree_tables.h \
        $(PLX)/plx_parser.h \
        $(PLX)/helpers.h \
