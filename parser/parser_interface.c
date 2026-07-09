@@ -23,18 +23,14 @@ Module* parse_file(enum Language lan, const char* path) {
         result = cp_parse_file(path);
         break;
     case JAVA:
-        /*
-        Awaiting fixes to the parser after that that would be changed.
-        result = java_parse()
-        */
-        printf("\nUnavaulable for now");
+        result = java_parse(path);
         break;
     case PLX:
         result = plx_parse_file(path);
         break;
 
     default:
-        printf("\nUnsupported language format!");
+        fprintf(stderr, "parser_interface: unsupported language format\n");
     }
 
     return result;
