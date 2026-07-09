@@ -49,4 +49,8 @@ void sl_init(StrList *l);
 void sl_push(StrList *l, char *s);
 void sl_free(StrList *l);
 
+
+// Output
+const char *or_null(const char *s);
+
 #endif

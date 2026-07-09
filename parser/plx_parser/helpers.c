@@ -188,3 +188,11 @@ void sl_free(StrList *l)
     free(l->items);
     sl_init(l);
 }
+
+
+// Output
+/* Render a possibly-NULL string as "(null)" so every field prints. */
+const char *or_null(const char *s)
+{
+    return s ? s : "(null)";
+}
