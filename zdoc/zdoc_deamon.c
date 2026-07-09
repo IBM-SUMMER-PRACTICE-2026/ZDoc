@@ -35,19 +35,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // prints for the paths
-    /*
-    printf("\nreconstructed paths:\n");
-    char path[1024];
-    for (size_t i = 0; i < global_file_table.count; i++) {
-        if (modtree_file_path(&global_dir_table, &global_file_table, (int)i, path, sizeof(path)) == 0) {
-            printf("  %s\n", path);
-        } else {
-            printf("  <path too long for file index %zu>\n", i);
-        }
-    }
-    */
-
     init_resources();
     char* path = malloc(sizeof(char) * 4096);
 
