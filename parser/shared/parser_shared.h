@@ -75,18 +75,18 @@ void free_symbol_content(Symbol * sym);
 /*                MODULE                     */
 /*********************************************/
 Module * init_module(const char *path);
-
-
-
-/*********************************************/
-/*            OUTPUT / CLEANUP               */
-/*********************************************/
-void print_module(const Module *mod);
+Symbol *module_add_symbol(Module *mod);
+void module_shrink_to_fit(Module *mod);
 void free_module(Module *mod);
 
 
-Symbol *module_add_symbol(Module *mod);
-void module_shrink_to_fit(Module *mod);
+
+/*********************************************/
+/*                 OUTPUT                    */
+/*********************************************/
+void print_module(const Module *mod);
+
+
 
 void *xmalloc(size_t n);
 void *xrealloc(void *p, size_t n);

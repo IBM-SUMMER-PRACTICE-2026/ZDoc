@@ -134,7 +134,7 @@ void module_shrink_to_fit(Module *mod)
 
 
 /*********************************************/
-/*            OUTPUT / CLEANUP               */
+/*                 OUTPUT                    */
 /*********************************************/
 void print_module(const Module *mod)
 {
