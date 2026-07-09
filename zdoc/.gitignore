@@ -3,3 +3,6 @@
 *.o
 # Stray file some shells create from the Makefile's `2>NUL` redirect.
 NUL
+
+# Local test run output
+zdoc-out/
