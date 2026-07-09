@@ -7,22 +7,6 @@
 #include "util.h"
 #include "doc_comment.h"
 
-// Free the memory allocated for a symbol and its contents
-static void symbol_free(Symbol *y) {
-    free(y->name);
-    free(y->signature);
-    free(y->description);
-    free(y->output);
-    free(y->diagram);
-    free(y->notes);
-    free(y->type);
-    for(int k = 0; k < y->inputCount; k++) {
-        free(y->input[k].name);
-        free(y->input[k].description);
-    }
-    free(y->input);
-}
-
 // Read a whole file into memory. Returns NULL (and sets *err) on failure so the
 // caller can still emit a valid, empty module and move on to the next file.
 static char *read_file(const char *path, size_t *out_len, const char **err) {
@@ -245,7 +229,7 @@ Module *java_parse(const char *path) {
                     sym.type        = classify_type(sym.signature, sym.name);  // "method" or "constructor"
                     *module_add_symbol(m) = sym;
                 } else {
-                    symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
+                    free_symbol_content(&sym);  //  Free any partially filled symbol if parsing failed
                 }
             }
 
