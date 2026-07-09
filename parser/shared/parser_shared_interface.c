@@ -50,6 +50,12 @@ void symbol_add_input(Symbol *sym, const char *name, const char *description) {
 }
 
 
+void free_input_param_content(InputParam *param) {
+    free(param->name);
+    free(param->description);
+}
+
+
 
 /*********************************************/
 /*                 SYMBOL                    */
@@ -63,8 +69,7 @@ void free_symbol_content(Symbol * sym) {
     free(sym->type);
     free(sym->diagram);
     for (int i = 0; i < sym->inputCount; i++) {
-        free(sym->input[i].name);
-        free(sym->input[i].description);
+        free_input_param_content(&sym->input[i]);
     }
     free(sym->input);
 }
