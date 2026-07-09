@@ -10,24 +10,7 @@
 #include <string.h>
 #include <ctype.h>
 
-//Memory allocation with error checking wrappers. If malloc fails the program exits with an error message.
-static inline void *xmalloc(size_t size) {
-    void *p = malloc(size ? size : 1);
-    if(!p) {
-        fprintf(stderr, "zdoc: Out of memory.\n");
-        exit(1);
-    }
-    return p;
-}
-
-static inline void *xrealloc(void *p, size_t size) {
-    void *q = realloc(p, size ? size : 1);
-    if(!q) {
-        fprintf(stderr, "zdoc: Out of memory.\n");
-        exit(1);
-    }
-    return q;
-}
+#include "../shared/parser_shared.h"
 
 //Duplicate a string with error checking. If malloc fails the program exits with an error message.
 static inline char *xstrndup(const char *s, size_t size) {

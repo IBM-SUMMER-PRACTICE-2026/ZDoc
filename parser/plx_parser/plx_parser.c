@@ -382,35 +382,6 @@ static void build_input_params(const StrList *lines, Symbol *sym,
     }
 }
 
-static Symbol *module_add_symbol(Module *mod)
-{
-    Symbol *sym;
-
-    if (mod->symbolCount == mod->symbolCap) {
-        mod->symbolCap = mod->symbolCap ? mod->symbolCap * 2 : 8;
-        mod->symbols = xrealloc(mod->symbols,
-                                (size_t)mod->symbolCap * sizeof(Symbol));
-    }
-    sym = &mod->symbols[mod->symbolCount++];
-    memset(sym, 0, sizeof(*sym));
-    return sym;
-}
-
-
-static void module_shrink_to_fit(Module *mod)
-{
-    if (mod->symbolCount == mod->symbolCap)
-        return;
-    if (mod->symbolCount == 0) {
-        free(mod->symbols);
-        mod->symbols = NULL;
-    } else {
-        mod->symbols = xrealloc(mod->symbols,
-                                (size_t)mod->symbolCount * sizeof(Symbol));
-    }
-    mod->symbolCap = mod->symbolCount;
-}
-
 /*
  * Turn the pending doc block into a Symbol. signature may be NULL for an
  * orphan block that was never followed by a PROC statement. procName is

@@ -55,15 +55,6 @@ static char *read_file(const char *path, size_t *out_len, const char **err) {
     return buf;
 }
 
-// Append a symbol to the module's symbol array. The array's memory is expanded if necessary.
-static void module_push(Module *m, Symbol sym) {
-    if(m->symbolCount == m->symbolCap) {
-        m->symbolCap = m->symbolCap ? m->symbolCap * 2 : 8;
-        m->symbols = xrealloc(m->symbols, (size_t)m->symbolCap * sizeof(Symbol));
-    }
-    m->symbols[m->symbolCount++] = sym;
-}
-
 // Skip any annotations (e.g. @Override, @SuppressWarnings("unchecked"), stacked or with
 // nested-paren arguments) between a doc comment and the declaration it documents.
 // Returns the index of the first non-whitespace, non-annotation character.
@@ -254,7 +245,7 @@ Module *java_parse(const char *path) {
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
                     sym.line        = line_of(src, sig_start, &line_anchor_pos, &line_anchor_line);
                     sym.type        = classify_type(sym.signature, sym.name);  // "method" or "constructor"
-                    module_push(m, sym);
+                    *module_add_symbol(m) = sym;
                 } else {
                     symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
                 }
