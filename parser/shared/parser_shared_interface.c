@@ -53,6 +53,19 @@ Module * init_module(const char *path) {
 
 
 /*********************************************/
+/*             INPUT PARAMS                  */
+/*********************************************/
+void symbol_add_input(Symbol *sym, const char *name, const char *description) {
+    sym->input = xrealloc(sym->input,
+                           (size_t)(sym->inputCount + 1) * sizeof(InputParam));
+    sym->input[sym->inputCount].name = xstrdup(name);
+    sym->input[sym->inputCount].description = xstrdup(description);
+    sym->inputCount++;
+}
+
+
+
+/*********************************************/
 /*            OUTPUT / CLEANUP               */
 /*********************************************/
 void print_module(const Module *mod)
