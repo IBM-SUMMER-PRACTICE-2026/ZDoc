@@ -36,7 +36,7 @@ typedef enum {
 
 int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
     Buffer name_buf = {0}, brief_buf = {0}, returns_buf = {0}, notes_buf = {0};
-    Param *params = NULL;
+    InputParam *params = NULL;
     Buffer *param_descs = NULL;
     size_t param_count = 0, param_cap = 0;
     size_t cur_param = 0;
@@ -89,7 +89,7 @@ int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
 
             if(param_count == param_cap) {
                 param_cap = param_cap ? param_cap * 2 : 4;
-                params = xrealloc(params, param_cap * sizeof(Param));
+                params = xrealloc(params, param_cap * sizeof(InputParam));
                 param_descs = xrealloc(param_descs, param_cap * sizeof(Buffer));
             }
             params[param_count].name = xstrndup(rest, name_len);
@@ -147,11 +147,12 @@ int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
 
     out->name = name_buf.len > 0 ? name_buf.data : NULL;
     out->signature = NULL;
-    out->brief = brief_buf.len > 0 ? brief_buf.data : NULL;
-    out->returns = returns_buf.len > 0 ? returns_buf.data : NULL;
+    out->description = brief_buf.len > 0 ? brief_buf.data : NULL;
+    out->output = returns_buf.len > 0 ? returns_buf.data : NULL;
     out->diagram = NULL;
     out->notes = notes_buf.len > 0 ? notes_buf.data : NULL;
-    out->params = params;
-    out->param_count = param_count;
+    out->input = params;
+    out->inputCount = (int)param_count;
+    out->type = NULL;  /* no Java symbol-kind logic yet */
     return 1;
 }

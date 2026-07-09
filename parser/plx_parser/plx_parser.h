@@ -1,6 +1,9 @@
 #ifndef PLX_PARSER_H
 #define PLX_PARSER_H
 
+#include "helpers.h"
+#include "../shared/parser_shared.h"
+
 #define MAX_LINE 1024
 
 /* ------------------------------------------------------------------ */
@@ -15,11 +18,6 @@ typedef enum {
     FIELD_OUTPUT,
     FIELD_UNKNOWN /* labeled line, but the label is not recognized */
 } FieldId;
-
-typedef struct {
-    char *name;
-    char *description;
-} InputParam;
 
 typedef struct {
     int active;      /* at least one recognized field collected */
@@ -39,21 +37,7 @@ typedef struct {
     int inString;
 } SigState;
 
-typedef struct {
-    char *name;        /* normalized from the Title/Routine/... doc field */
-    char *description;
-    char *signature;
-    InputParam *input;
-    int inputCount;
-    char *output;
-} Symbol;
-
-typedef struct {
-    char *filename;
-    Symbol *symbols;
-    int symbolCount;
-    int symbolCap; /* internal: geometric-growth capacity of symbols[] */
-} Module;
+/* Symbol / Module output structs are the shared ones from parser_shared.h. */
 
 #define PLX_COMMENT_LINE_WIDTH 71
 
