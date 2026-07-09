@@ -1,10 +1,31 @@
 #include "parser_shared.h"
 #include <stdio.h>
+#include <string.h>
 
 /* Render a possibly-NULL string as "(null)" so every field prints. */
 static const char *or_null(const char *s)
 {
     return s ? s : "(null)";
+}
+
+void *xmalloc(size_t n)
+{
+    void *p = malloc(n);
+    if (!p) {
+        fprintf(stderr, "zdoc: out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+void *xrealloc(void *p, size_t n)
+{
+    p = realloc(p, n);
+    if (!p) {
+        fprintf(stderr, "zdoc: out of memory\n");
+        exit(1);
+    }
+    return p;
 }
 
 /*********************************************/
@@ -65,4 +86,35 @@ void free_module(Module *mod)
     free(mod->symbols);
     free(mod->filename);
     free(mod);
+}
+
+
+
+Symbol *module_add_symbol(Module *mod)
+{
+    Symbol *sym;
+
+    if (mod->symbolCount == mod->symbolCap) {
+        mod->symbolCap = mod->symbolCap ? mod->symbolCap * 2 : 8;
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCap * sizeof(Symbol));
+    }
+    sym = &mod->symbols[mod->symbolCount++];
+    memset(sym, 0, sizeof(*sym));
+    return sym;
+}
+
+
+void module_shrink_to_fit(Module *mod)
+{
+    if (mod->symbolCount == mod->symbolCap)
+        return;
+    if (mod->symbolCount == 0) {
+        free(mod->symbols);
+        mod->symbols = NULL;
+    } else {
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCount * sizeof(Symbol));
+    }
+    mod->symbolCap = mod->symbolCount;
 }

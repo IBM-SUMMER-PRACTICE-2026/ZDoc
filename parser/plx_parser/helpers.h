@@ -2,10 +2,9 @@
 #define PLX_HELPERS_H
 
 #include <stddef.h>
+#include "../shared/parser_shared.h"
 
-/* Allocation wrappers that abort on out-of-memory. */
-void *xmalloc(size_t n);
-void *xrealloc(void *p, size_t n);
+/* Allocation wrappers that abort on out-of-memory (defined in parser_shared_interface.c). */
 char *xstrndup(const char *s, size_t n);
 char *xstrdup(const char *s);
 

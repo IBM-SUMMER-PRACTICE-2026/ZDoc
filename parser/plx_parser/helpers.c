@@ -7,26 +7,6 @@
 
 #include "helpers.h"
 
-void *xmalloc(size_t n)
-{
-    void *p = malloc(n);
-    if (!p) {
-        fprintf(stderr, "plx_parser: out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
-void *xrealloc(void *p, size_t n)
-{
-    p = realloc(p, n);
-    if (!p) {
-        fprintf(stderr, "plx_parser: out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
 char *xstrndup(const char *s, size_t n)
 {
     char *d = xmalloc(n + 1);
