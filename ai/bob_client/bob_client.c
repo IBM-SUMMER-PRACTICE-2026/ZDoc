@@ -72,6 +72,31 @@ static char **split_args(const char *args, char **storage, size_t *n)
     return tok;
 }
 
+/* Build the one-shot prompt fed to Bob: a short instruction plus the snippet
+ * the closure assembled. The zdoc-diagram extension carries the full output
+ * contract, so this stays brief. Returns a malloc'd string; caller frees. */
+static char *build_prompt(const char *language, const char *snippet)
+{
+    static const char *pre =
+        "Produce a ZDoc block diagram for the following ";
+    static const char *mid =
+        " function as a single Mermaid flowchart, per the zdoc-diagram rules. "
+        "Output only the Mermaid block.\n\n";
+    const char *lang = (language && *language) ? language : "";
+    size_t lp = strlen(pre), ll = strlen(lang), lm = strlen(mid),
+           ls = strlen(snippet);
+    char *p = malloc(lp + ll + lm + ls + 1);
+    if (!p)
+        return NULL;
+    char *w = p;
+    memcpy(w, pre, lp); w += lp;
+    memcpy(w, lang, ll); w += ll;
+    memcpy(w, mid, lm); w += lm;
+    memcpy(w, snippet, ls); w += ls;
+    *w = '\0';
+    return p;
+}
+
 /* Fork/exec the Bob CLI, capturing its stdout. Returns a malloc'd,
  * NUL-terminated buffer of the output (caller frees) and writes bob's exit
  * code to *exit_code. Returns NULL on spawn or read failure. */
@@ -80,15 +105,26 @@ static char *run_bob(const BobConfig *cfg, const char *language,
 {
     const char *cli = (cfg && cfg->cli && *cfg->cli) ? cfg->cli : "bob";
 
+    char *prompt = build_prompt(language, snippet);
+    if (!prompt)
+        return NULL;
+
     char *args_storage = NULL;
     size_t nextra = 0;
     char **extra = split_args(cfg ? cfg->args : NULL, &args_storage, &nextra);
-    if (!extra)
+    if (!extra) {
+        free(prompt);
         return NULL;
+    }
 
-    /* cli explain --diagram --brief --lang LANG --snippet SNIP = 8 slots. */
-    char **argv = malloc((8 + nextra + 1) * sizeof(char *));
+    /* Real Bob is a one-shot prompt agent (Bob Shell). The zdoc-diagram
+     * extension carries the output contract; we pass the snippet as the
+     * prompt. `-o text` prints the final answer; `--chat-mode ask -y` keeps
+     * it read-only and non-interactive.
+     * cli -o text --chat-mode ask -y PROMPT = 7 slots. */
+    char **argv = malloc((7 + nextra + 1) * sizeof(char *));
     if (!argv) {
+        free(prompt);
         free(extra);
         free(args_storage);
         return NULL;
@@ -96,19 +132,19 @@ static char *run_bob(const BobConfig *cfg, const char *language,
 
     size_t k = 0;
     argv[k++] = (char *)cli;
-    argv[k++] = (char *)"explain";
-    argv[k++] = (char *)"--diagram";
-    argv[k++] = (char *)"--brief";
-    argv[k++] = (char *)"--lang";
-    argv[k++] = (char *)language;
-    argv[k++] = (char *)"--snippet";
-    argv[k++] = (char *)snippet;
+    argv[k++] = (char *)"-o";
+    argv[k++] = (char *)"text";
+    argv[k++] = (char *)"--chat-mode";
+    argv[k++] = (char *)"ask";
+    argv[k++] = (char *)"-y";
+    argv[k++] = prompt;
     for (size_t i = 0; i < nextra; i++)
         argv[k++] = extra[i];
     argv[k] = NULL;
 
     int fds[2];
     if (pipe(fds) != 0) {
+        free(prompt);
         free(argv);
         free(extra);
         free(args_storage);
@@ -119,6 +155,7 @@ static char *run_bob(const BobConfig *cfg, const char *language,
     if (pid < 0) {
         close(fds[0]);
         close(fds[1]);
+        free(prompt);
         free(argv);
         free(extra);
         free(args_storage);
@@ -134,9 +171,10 @@ static char *run_bob(const BobConfig *cfg, const char *language,
         _exit(127); /* exec failed (e.g. bob not on PATH) */
     }
 
-    /* Parent: no longer needs the write end or the argv vector. */
+    /* Parent: no longer needs the write end, the argv vector, or the prompt. */
     close(fds[1]);
     free(argv);
+    free(prompt);
 
     char *out = NULL;
     size_t len = 0, cap = 0;

@@ -12,9 +12,10 @@ Current state: `ai/bob_client/` is a library unit with two composable halves:
 - **Invocation + sanitize** (`bob_client.c`) — shells out to Bob and sanitizes
   the response into an embeddable Mermaid flowchart.
 
-Bob's behaviour is defined by the `zdoc-diagram` skill in
-`.bob/skills/zdoc-diagram/`. Both halves are unit-testable today; nothing in the
-pipeline calls them yet.
+Bob's output contract is defined by the `zdoc-diagram` **Bob extension** in
+`.bob/extensions/zdoc-diagram/` (`bob-extension.json` + `context.md` +
+`examples/`). Both halves are unit-testable today; nothing in the pipeline calls
+them yet.
 
 ---
 
@@ -122,17 +123,28 @@ and a `test.c`, wired into the Makefile's `test` target — mirroring
 
 ### 1d. Real Bob integration
 
-Once Bob is installed and a session/API key is configured:
+Real Bob ("Bob Shell", 1.0.6) is a one-shot **prompt agent** — `bob "<prompt>"`,
+not the `explain --diagram` command `docs/ZDOC.md` imagined. And Bob has no
+"skills": diagram rules ship as a **Bob extension** (`bob-extension.json` +
+context files). Two steps:
 
-```c
-BobConfig cfg = bob_config_default();   /* cli = "bob" on PATH */
-char *d = bob_diagram(&cfg, "PL/X", plx_snippet);
-```
+1. **Link the extension** so its context shapes Bob's answers:
 
-Confirm first that Bob discovers the skill: it must find
-`.bob/skills/zdoc-diagram/`. Verify the invocation Bob actually runs matches
-`bob explain --diagram --brief --lang <lang> --snippet <src>` and that it
-returns exactly one fenced flowchart (the skill's hard output contract).
+   ```sh
+   bob extensions validate .bob/extensions/zdoc-diagram   # sanity check (no API)
+   bob extensions link     .bob/extensions/zdoc-diagram   # activate it
+   ```
+
+2. **Run the end-to-end harness** (spends Bob credits):
+
+   ```sh
+   cd ai/bob_client && make live
+   ```
+
+   `bob_client` invokes `bob -o text --chat-mode ask -y "<instruction>\n\n<snippet>"`;
+   the extension supplies the output contract, and the sanitizer extracts the
+   fence-less flowchart. `make live` prints the snippet sent and the diagram
+   returned, exit 0 iff a diagram came back.
 
 ---
 
