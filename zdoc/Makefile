@@ -12,12 +12,16 @@ CFLAGS ?= -g -O0 -std=c11 -Wall -Wextra
 ifeq ($(OS),Windows_NT)
     EXE := .exe
     CC  ?= gcc
+    # Windows threads come from windows.h; no extra link flag needed.
+    THREADFLAGS :=
     ifeq ($(shell uname -s 2>NUL),)
         WINDOWS_CMD := 1
     endif
 else
     EXE :=
     CC  ?= cc
+    # POSIX threads (pthread) require -pthread at compile and link time.
+    THREADFLAGS := -pthread
 endif
 
 BIN = zdoc$(EXE)
@@ -40,6 +44,7 @@ PLX     = ../parser/plx_parser
 CPARSER = ../parser/c_parser
 JPARSER = ../parser/java_parser
 PARSER  = ../parser
+THREAD  = ./threading_interface
 
 SRCS = zdoc_deamon.c \
        $(PARSER)/parser_interface.c \
@@ -50,7 +55,8 @@ SRCS = zdoc_deamon.c \
        $(PLX)/helpers.c \
        $(CPARSER)/c_parser.c \
        $(JPARSER)/java_parser.c \
-       $(JPARSER)/doc_comment.c
+       $(JPARSER)/doc_comment.c \
+       $(THREAD)/threading_interface.c
 
 HDRS = $(PARSER)/parser_interface.h \
        $(SHARED)/parser_shared.h \
@@ -61,12 +67,13 @@ HDRS = $(PARSER)/parser_interface.h \
        $(CPARSER)/c_parser.h \
        $(JPARSER)/java_parser.h \
        $(JPARSER)/doc_comment.h \
-       $(JPARSER)/util.h
+       $(JPARSER)/util.h \
+       $(THREAD)/threading_interface.h
 
 all: $(BIN)
 
 $(BIN): $(SRCS) $(HDRS)
-	$(CC) $(CFLAGS) -o $@ $(SRCS)
+	$(CC) $(CFLAGS) -o $@ $(SRCS) $(THREADFLAGS)
 
 # Smoke test: walk this directory. The daemon returns 0 on a successful walk.
 test: $(BIN)

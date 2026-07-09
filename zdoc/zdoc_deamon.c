@@ -3,12 +3,38 @@
 #include "../extractor/doc_extractor/module_tree/modtree_tables.h"
 #include "../parser/plx_parser/plx_parser.h"
 #include "../parser/parser_interface.h"
+#include "./threading_interface/threading_interface.h"
 #include <stdio.h>
 #include <string.h>
 
 const char* root_path;
 size_t extension_count;
 const char** extensions;
+
+void thread_func() {
+    int curr_possition_in_arry;
+    char* path = malloc(sizeof(char) * 4096);
+
+    while(finished_files != files_count) {
+        curr_possition_in_arry = finished_files;
+        finished_files++;
+        enum Language lang = language_from_name(global_file_table.files[curr_possition_in_arry].name);
+        if ((int)lang < 0) {
+            continue;
+        }
+
+        modtree_file_path(&global_dir_table, &global_file_table, curr_possition_in_arry, path, 4096);
+
+        Module* finished = parse_file(lang, path);
+        if (finished == NULL) {
+            continue;
+        }
+
+        global_parsed_files_arry[curr_possition_in_arry] = *finished;
+    }
+
+    free(path);
+}
 
 int main(int argc, char* argv[]) {
     
@@ -36,27 +62,12 @@ int main(int argc, char* argv[]) {
     }
 
     init_resources();
-    char* path = malloc(sizeof(char) * 4096);
 
-    for(int i = 0; i < files_count; i++) {
-        enum Language lang = language_from_name(global_file_table.files[i].name);
-        if ((int)lang < 0) {
-            continue;
-        }
+    type_thread thread = create_thread(thread_func);
+    wait_for_thread(&thread);
 
-        modtree_file_path(&global_dir_table, &global_file_table, i, path, 4096);
-
-        Module* finished = parse_file(lang, path);
-        if (finished == NULL) {
-            continue;
-        }
-
-        global_parsed_files_arry[finished_files++] = *finished;
-    }
-
-    free(path);
 
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
- 
+
 }
