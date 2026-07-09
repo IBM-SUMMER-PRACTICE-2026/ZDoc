@@ -1,0 +1,58 @@
+/* options.h — shared option model for the zdoc CLI.
+   One struct carries every setting from all three sources, applied in
+  precedence order: built-in defaults -> zdoc.yaml -> command line
+  (see docs/ZDOC.md -> "Configuration File").
+ */
+#ifndef ZD_OPTIONS_H
+#define ZD_OPTIONS_H
+
+#define ZD_VERSION "0.1.0"
+
+#define ZD_PATH_MAX     1024
+#define ZD_TITLE_MAX     256
+#define ZD_ARGS_MAX      512
+#define ZD_LANG_MAX       16
+#define ZD_MAX_LANGS      16
+#define ZD_GLOB_MAX      256
+#define ZD_MAX_EXCLUDES   32
+#define ZD_MAX_INPUTS     32
+
+typedef enum {
+    ZD_MODE_OFFLINE,
+    ZD_MODE_AI
+} zd_mode;
+
+typedef enum {
+    ZD_FORMAT_MD,
+    ZD_FORMAT_HTML
+} zd_format;
+
+typedef struct {
+    zd_mode   mode;
+    zd_format format;
+    char      out_dir[ZD_PATH_MAX];
+    char      title[ZD_TITLE_MAX];
+    char      bob_cli[ZD_PATH_MAX];
+    char      bob_args[ZD_ARGS_MAX];
+    char      languages[ZD_MAX_LANGS][ZD_LANG_MAX];
+    int       n_languages;
+    char      excludes[ZD_MAX_EXCLUDES][ZD_GLOB_MAX];
+    int       n_excludes;
+    int       recursive;
+    int       no_source;
+    char      inputs[ZD_MAX_INPUTS][ZD_PATH_MAX];
+    int       n_inputs;
+} zd_options;
+
+void zd_options_init(zd_options *o);
+
+const char *zd_mode_name(zd_mode m);
+const char *zd_format_name(zd_format f);
+
+/* Language table (canonical names + accepted aliases, per docs/ZDOC.md).
+   zd_lang_canonical maps a name or alias ("c++", "assembler") to its
+   canonical form, case-insensitively; NULL if unknown. */
+const char *zd_lang_canonical(const char *name);
+const char *zd_lang_supported(void); /* comma list for error messages */
+
+#endif 
