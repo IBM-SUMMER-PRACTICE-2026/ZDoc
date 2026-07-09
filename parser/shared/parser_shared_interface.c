@@ -66,6 +66,26 @@ void symbol_add_input(Symbol *sym, const char *name, const char *description) {
 
 
 /*********************************************/
+/*                 SYMBOL                    */
+/*********************************************/
+void free_symbol_content(Symbol * sym) {
+    free(sym->name);
+    free(sym->description);
+    free(sym->signature);
+    free(sym->output);
+    free(sym->notes);
+    free(sym->type);
+    free(sym->diagram);
+    for (int i = 0; i < sym->inputCount; i++) {
+        free(sym->input[i].name);
+        free(sym->input[i].description);
+    }
+    free(sym->input);
+}
+
+
+
+/*********************************************/
 /*            OUTPUT / CLEANUP               */
 /*********************************************/
 void print_module(const Module *mod)
@@ -106,19 +126,7 @@ void free_module(Module *mod)
     if (!mod)
         return;
     for (i = 0; i < mod->symbolCount; i++) {
-        Symbol *sym = &mod->symbols[i];
-        free(sym->name);
-        free(sym->description);
-        free(sym->signature);
-        free(sym->output);
-        free(sym->notes);
-        free(sym->type);
-        free(sym->diagram);
-        for (j = 0; j < sym->inputCount; j++) {
-            free(sym->input[j].name);
-            free(sym->input[j].description);
-        }
-        free(sym->input);
+        free_symbol_content(&mod->symbols[i]);
     }
     free(mod->symbols);
     free(mod->filename);
