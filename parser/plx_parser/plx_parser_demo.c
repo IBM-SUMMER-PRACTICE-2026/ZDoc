@@ -56,8 +56,8 @@ int main(int argc, char **argv)
         }
         if (i > 1 && rc == 0)
             printf("\n");
-        plx_print_module(mod);
-        plx_free_module(mod);
+        print_module(mod);
+        free_module(mod);
         fprintf(stderr, "%s: parsed in %.3f ms\n", argv[i],
                 (double)(t1 - t0) * 1000.0 / CLOCKS_PER_SEC);
     }
