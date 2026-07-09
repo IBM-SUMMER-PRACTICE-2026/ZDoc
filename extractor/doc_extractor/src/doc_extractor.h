@@ -69,6 +69,9 @@ typedef struct {
     size_t    param_count;
     char     *returns;
     char     *notes;
+    char     *diagram;    /* Mermaid flowchart source (AI Assisted mode), NULL when absent */
+    char    **refs;       /* cross-referenced symbol names */
+    size_t    ref_count;
 } DxSymbol;
 
 typedef struct {

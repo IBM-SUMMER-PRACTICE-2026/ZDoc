@@ -55,6 +55,10 @@ static void convert_symbol(const Symbol *src, DxSymbol *dst) {
     dst->brief     = dx_strdup(src->description);
     dst->returns   = dx_strdup(src->output);
     dst->notes     = dx_strdup(src->notes);
+    dst->diagram   = dx_strdup(src->diagram);
+    /* refs/ref_count: no upstream source yet (no parser or extraction step
+     * computes cross-references) - stay NULL/0, same as an absent key would
+     * have been under the old JSON contract. */
 
     if(src->inputCount > 0) {
         dst->params = xmalloc((size_t)src->inputCount * sizeof(DxParam));
@@ -127,11 +131,14 @@ void dx_free_symbol(DxSymbol *s) {
     free(s->brief);
     free(s->returns);
     free(s->notes);
+    free(s->diagram);
     for(size_t k = 0; k < s->param_count; k++) {
         free(s->params[k].name);
         free(s->params[k].desc);
     }
     free(s->params);
+    for(size_t k = 0; k < s->ref_count; k++) free(s->refs[k]);
+    free(s->refs);
 }
 
 void dx_free(DxModel *m) {
