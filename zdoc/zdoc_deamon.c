@@ -31,8 +31,6 @@ static double now_seconds(void) {
 }
 
 void thread_func() {
-    char* path = malloc(sizeof(char) * 4096);
-
     for (;;) {
         int curr_possition_in_arry = atomic_fetch_add(&finished_files, 1);
         if (curr_possition_in_arry >= files_count) {
@@ -43,17 +41,23 @@ void thread_func() {
             continue;
         }
 
+        char* path = paths_look_up[curr_possition_in_arry];
         modtree_file_path(&global_dir_table, &global_file_table, curr_possition_in_arry, path, 4096);
+
+        char* shrunk = realloc(path, strlen(path) + 1);
+        if (shrunk != NULL) {
+            path = shrunk;
+            paths_look_up[curr_possition_in_arry] = shrunk;
+        }
 
         Module* finished = parse_file(lang, path);
         if (finished == NULL) {
             continue;
         }
 
+        finished->pathIndex = curr_possition_in_arry;
         global_parsed_files_arry[curr_possition_in_arry] = *finished;
     }
-
-    free(path);
 }
 
 int main(int argc, char* argv[]) {
