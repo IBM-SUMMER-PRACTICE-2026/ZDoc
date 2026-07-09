@@ -1258,19 +1258,9 @@ static Module *result_to_module(cp_result *r, const char *path)
     Module *m = init_module(path);
 
     if (r->n) {
-        m->symbols = (Symbol *)malloc(r->n * sizeof *m->symbols);
-        if (!m->symbols) {
-            /* OOM: hand back an empty module, let cp_result_free reclaim all */
-            cp_result_free(r);
-            return m;
-        }
-        m->symbolCount = (int)r->n;
-        m->symbolCap = (int)r->n;
-
         for (size_t i = 0; i < r->n; i++) {
             cp_symbol *cs = &r->syms[i];
-            Symbol *sy = &m->symbols[i];
-            memset(sy, 0, sizeof *sy);
+            Symbol *sy = module_add_symbol(m);
 
             sy->name = (char *)cs->name;
             cs->name = NULL;
@@ -1293,6 +1283,7 @@ static Module *result_to_module(cp_result *r, const char *path)
         }
     }
 
+    module_shrink_to_fit(m);
     cp_result_free(r);
     return m;
 }
