@@ -39,20 +39,6 @@ char *xstrdup(const char *s)
 
 
 /*********************************************/
-/*                MODULE                     */
-/*********************************************/
-Module * init_module(const char *path) {
-    Module * mod = xmalloc(sizeof(Module));
-    mod->filename = xstrdup(path);
-    mod->symbols = NULL;
-    mod->symbolCount = 0;
-    mod->symbolCap = 0;
-    return mod;
-}
-
-
-
-/*********************************************/
 /*             INPUT PARAMS                  */
 /*********************************************/
 void symbol_add_input(Symbol *sym, const char *name, const char *description) {
@@ -81,6 +67,65 @@ void free_symbol_content(Symbol * sym) {
         free(sym->input[i].description);
     }
     free(sym->input);
+}
+
+
+
+/*********************************************/
+/*                MODULE                     */
+/*********************************************/
+Module * init_module(const char *path) {
+    Module * mod = xmalloc(sizeof(Module));
+    mod->filename = xstrdup(path);
+    mod->symbols = NULL;
+    mod->symbolCount = 0;
+    mod->symbolCap = 0;
+    return mod;
+}
+
+
+void free_module(Module *mod)
+{
+    int i, j;
+
+    if (!mod)
+        return;
+    for (i = 0; i < mod->symbolCount; i++) {
+        free_symbol_content(&mod->symbols[i]);
+    }
+    free(mod->symbols);
+    free(mod->filename);
+    free(mod);
+}
+
+
+Symbol *module_add_symbol(Module *mod)
+{
+    Symbol *sym;
+
+    if (mod->symbolCount == mod->symbolCap) {
+        mod->symbolCap = mod->symbolCap ? mod->symbolCap * 2 : 8;
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCap * sizeof(Symbol));
+    }
+    sym = &mod->symbols[mod->symbolCount++];
+    memset(sym, 0, sizeof(*sym));
+    return sym;
+}
+
+
+void module_shrink_to_fit(Module *mod)
+{
+    if (mod->symbolCount == mod->symbolCap)
+        return;
+    if (mod->symbolCount == 0) {
+        free(mod->symbols);
+        mod->symbols = NULL;
+    } else {
+        mod->symbols = xrealloc(mod->symbols,
+                                (size_t)mod->symbolCount * sizeof(Symbol));
+    }
+    mod->symbolCap = mod->symbolCount;
 }
 
 
@@ -117,49 +162,4 @@ void print_module(const Module *mod)
                        or_null(sym->input[j].description));
         }
     }
-}
-
-void free_module(Module *mod)
-{
-    int i, j;
-
-    if (!mod)
-        return;
-    for (i = 0; i < mod->symbolCount; i++) {
-        free_symbol_content(&mod->symbols[i]);
-    }
-    free(mod->symbols);
-    free(mod->filename);
-    free(mod);
-}
-
-
-
-Symbol *module_add_symbol(Module *mod)
-{
-    Symbol *sym;
-
-    if (mod->symbolCount == mod->symbolCap) {
-        mod->symbolCap = mod->symbolCap ? mod->symbolCap * 2 : 8;
-        mod->symbols = xrealloc(mod->symbols,
-                                (size_t)mod->symbolCap * sizeof(Symbol));
-    }
-    sym = &mod->symbols[mod->symbolCount++];
-    memset(sym, 0, sizeof(*sym));
-    return sym;
-}
-
-
-void module_shrink_to_fit(Module *mod)
-{
-    if (mod->symbolCount == mod->symbolCap)
-        return;
-    if (mod->symbolCount == 0) {
-        free(mod->symbols);
-        mod->symbols = NULL;
-    } else {
-        mod->symbols = xrealloc(mod->symbols,
-                                (size_t)mod->symbolCount * sizeof(Symbol));
-    }
-    mod->symbolCap = mod->symbolCount;
 }

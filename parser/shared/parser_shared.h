@@ -56,11 +56,10 @@ typedef struct Module {
 int init_resources();
 
 
-
 /*********************************************/
-/*                MODULE                     */
+/*             INPUT PARAMS                  */
 /*********************************************/
-Module * init_module(const char *path);
+void symbol_add_input(Symbol *sym, const char *name, const char *description);
 
 
 
@@ -70,10 +69,12 @@ Module * init_module(const char *path);
 void free_symbol_content(Symbol * sym);
 
 
+
 /*********************************************/
-/*             INPUT PARAMS                  */
+/*                MODULE                     */
 /*********************************************/
-void symbol_add_input(Symbol *sym, const char *name, const char *description);
+Module * init_module(const char *path);
+
 
 
 /*********************************************/
