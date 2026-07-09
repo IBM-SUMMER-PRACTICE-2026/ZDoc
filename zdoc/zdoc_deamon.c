@@ -6,18 +6,38 @@
 #include "./threading_interface/threading_interface.h"
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <stdatomic.h>
+
+#ifndef NUM_THREADS
+#define NUM_THREADS 4
+#endif
 
 const char* root_path;
 size_t extension_count;
 const char** extensions;
 
+static double now_seconds(void) {
+#ifdef _WIN32
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
 void thread_func() {
-    int curr_possition_in_arry;
     char* path = malloc(sizeof(char) * 4096);
 
-    while(finished_files != files_count) {
-        curr_possition_in_arry = finished_files;
-        finished_files++;
+    for (;;) {
+        int curr_possition_in_arry = atomic_fetch_add(&finished_files, 1);
+        if (curr_possition_in_arry >= files_count) {
+            break;
+        }
         enum Language lang = language_from_name(global_file_table.files[curr_possition_in_arry].name);
         if ((int)lang < 0) {
             continue;
@@ -63,9 +83,19 @@ int main(int argc, char* argv[]) {
 
     init_resources();
 
-    type_thread thread = create_thread(thread_func);
-    wait_for_thread(&thread);
+    double start = now_seconds();
 
+    type_thread threads[NUM_THREADS];
+    for (int i = 0; i < NUM_THREADS; i++) {
+        threads[i] = create_thread(thread_func);
+    }
+    for (int i = 0; i < NUM_THREADS; i++) {
+        wait_for_thread(&threads[i]);
+    }
+
+    double elapsed = now_seconds() - start;
+    printf("%d threads parsed %d files in %.3f s\n",
+           NUM_THREADS, files_count, elapsed);
 
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
