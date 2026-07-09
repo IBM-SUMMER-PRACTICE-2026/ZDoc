@@ -1,5 +1,47 @@
 #include "parser_helpers.h"
 #include <ctype.h>
+#include <string.h>
+
+
+
+/*********************************************/
+/*          PLXMAC PROLOG PARSING            */
+/*********************************************/
+
+/*
+ * Method Prolog banner detection (see docs/plx-doccomment-convention.md,
+ * "Method Prolog Blocks"). The block is one multi-line comment with quirky
+ * listing-border delimiters, so it is recognized by the banner text, not
+ * the delimiter bytes.
+ */
+int is_prolog_start(const char *line)
+{
+    const char *s = skip_ws(line);
+    if (*s != '*' && *s != '/')
+        return 0;
+    return str_istr(s, "Start of Method Prolog") != NULL;
+}
+
+int is_prolog_end(const char *line)
+{
+    const char *s = skip_ws(line);
+    if (*s != '*' && *s != '/')
+        return 0;
+    return str_istr(s, "End of Method Prolog") != NULL;
+}
+
+/*
+ * Strip the leading '*' box border from a Method Prolog interior line and
+ * return the trimmed content (heap-allocated; "" for a padding-only line).
+ */
+char *prolog_content(const char *line)
+{
+    const char *s = skip_ws(line);
+
+    if (*s == '*')
+        s++;
+    return trim_dup(s, strlen(s));
+}
 
 
 
