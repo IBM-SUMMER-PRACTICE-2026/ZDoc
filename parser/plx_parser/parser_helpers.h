@@ -3,6 +3,16 @@
 
 #include "plx_parser.h"
 
+
+
+/*********************************************/
+/*          PROC STATEMENTS NAMES            */
+/*********************************************/
+char *match_proc_start(const char *line);
+char *match_procentry(const char *line);
+
+
+
 /*********************************************/
 /*               SIGNATURE                   */
 /*********************************************/
