@@ -1,7 +1,7 @@
 #ifndef PLX_PARSER_H
 #define PLX_PARSER_H
 
-#include "helpers.h"
+#include "str_helpers.h"
 #include "../shared/parser_shared.h"
 
 #define MAX_LINE 1024

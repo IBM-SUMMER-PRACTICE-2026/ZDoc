@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "helpers.h"
+#include "str_helpers.h"
 
 char *xstrndup(const char *s, size_t n)
 {

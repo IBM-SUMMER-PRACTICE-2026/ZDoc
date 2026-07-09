@@ -1,5 +1,5 @@
-#ifndef PLX_HELPERS_H
-#define PLX_HELPERS_H
+#ifndef PLX_STR_HELPERS_H
+#define PLX_STR_HELPERS_H
 
 #include <stddef.h>
 #include "../shared/parser_shared.h"
