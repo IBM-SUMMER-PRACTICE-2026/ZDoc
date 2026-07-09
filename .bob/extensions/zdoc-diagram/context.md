@@ -1,21 +1,19 @@
----
-name: zdoc-diagram
-version: 1.0.0
-description: >
-  Generate brief block diagrams for individual functions, procedures, and
-  entry points in PL/X, PLAS, C, C++, Java, HLASM Assembler, and Pascal
-  source code. Used by the ZDoc documentation generator, which invokes the
-  Bob CLI once per extracted symbol. Activate whenever asked to explain a
-  code snippet with a diagram, especially with the flags --diagram --brief.
----
+# ZDoc Block Diagram — Bob extension
 
-# ZDoc Block Diagram Skill
+This workspace uses ZDoc's AI Assisted mode. ZDoc calls Bob once per extracted
+symbol with a prompt containing a snippet in this shape:
 
-You generate a **brief block diagram** for a single function. The consumer of
-your output is a machine (the ZDoc pipeline): it takes the Mermaid block you
-return and drops it, verbatim, into the function's documentation section. There
-is no conversion or repair step — so the Mermaid must be **valid and
-self-sanitized** exactly as written.
+```
+DOC:        <the function's doc comment, if any>
+DECLARATIONS: <only the declarations the body references>
+CALLEES:    <NAME: signature — brief, one per documented callee>
+FUNCTION (<language>): <the function body to diagram>
+```
+
+When you receive such a request, **generate a brief block diagram for that one
+function** and respond with **exactly one Mermaid flowchart and nothing else**,
+following the contract below. If a prompt is *not* a ZDoc diagram request,
+ignore this file entirely.
 
 ## Output contract (HARD — never violate)
 
@@ -47,8 +45,8 @@ Rules:
 - **Sanitize every label.** Allowed characters inside a node are letters,
   digits, spaces, and `: = ? -` only. Never put quotes, brackets `[]`,
   braces `{}`, parentheses `()`, pipes `|`, angle brackets `<>`, `&`, `#`,
-  `;`, `/`, or backticks *inside* the text — reword instead of `CB(len)`
-  write `CB length`. This is what keeps the raw output safe to inject.
+  `;`, `/`, or backticks *inside* the text — reword instead: for `CB(len)`
+  write `CB length`. This keeps the output safe to embed verbatim.
 - If the snippet cannot be diagrammed (empty body, pure data declarations),
   return the single-node graph:
   `flowchart TD` then `    A[No executable logic]`.
@@ -67,11 +65,7 @@ One node per **logical step**, not per source line.
 - Collapse straight-line sequences: "Initialise control block fields" — not
   three separate assignment nodes.
 
-Full labeling conventions in [conventions.md](conventions.md).
-
 ## How to read the input
-
-ZDoc sends up to four sections, `FUNCTION` always last:
 
 - `DOC:` — the function's own doc comment. Trust it for intent and naming.
 - `DECLARATIONS:` — only the declarations the function references. Use them
@@ -84,14 +78,38 @@ ZDoc sends up to four sections, `FUNCTION` always last:
   node.
 - `FUNCTION (<language>):` — the body to diagram. Diagram only this.
 
+## Conventions
+
+### Node shapes
+
+| Role | Mermaid | Use for |
+|------|---------|---------|
+| step | `id[text]` | Actions / processing steps |
+| return | `id[text]` | Exit points |
+| decision | `id{text}` | Branches (phrased as a question) |
+| call | `id(text)` | Calls to symbols listed in `CALLEES:` |
+
+### Text labels
+
+- Entry node: `A[Entry: NAME]` (symbol name exactly as in source).
+- Returns: `Return RC=n` plus a 2–4 word reason when the code shows one
+  (`Return RC=8 - storage failure`).
+- Calls: `(Call TERMPROC)` — the callee's real name, exactly as in `CALLEES:`.
+- Decisions phrased as questions: `{Storage obtained?}`.
+- Keep every label under ~6 words.
+
+### Edges
+
+- Plain sequential flow, no label: `A --> B`.
+- Decision out-edges always labeled: `B -- Yes --> C`, or literal values
+  (`B -- RC=8 --> D`).
+- Loop back-edges (an edge to an earlier node) are encouraged over unrolling:
+  `F --> C`.
+
 ## Golden examples
 
-Study the pairs in `examples/` before answering. They define the expected
-granularity and style per language family. The PL/X and HLASM examples are
-the most important — follow their level of abstraction exactly.
-
-- [examples/plx-example-1.md](examples/plx-example-1.md)
-- [examples/c-example-1.md](examples/c-example-1.md)
-- [examples/asm-example-1.md](examples/asm-example-1.md)
-- [examples/granularity-negative.md](examples/granularity-negative.md) —
-  a wrong (too detailed) answer and its correction.
+The example files loaded with this extension define the expected granularity
+and style per language family. The PL/X and HLASM examples are the most
+important — follow their level of abstraction exactly, and study
+`granularity-negative` for the most common mistake (diagramming source lines
+instead of logic).
