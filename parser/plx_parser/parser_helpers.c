@@ -249,8 +249,9 @@ char *comment_content(const char *line)
     /* Strip the trailing change-activity tag (@L0A, @00C, ...). */
     n = strlen(content);
     if (
+        n >= 4 &&
         (n == 4 || isspace((unsigned char)content[n - 5])) &&
-        n >= 4 && content[n - 4] == '@' &&
+        content[n - 4] == '@' &&
         isalnum((unsigned char)content[n - 3]) &&
         isalnum((unsigned char)content[n - 2]) &&
         isalnum((unsigned char)content[n - 1])
