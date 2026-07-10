@@ -42,7 +42,14 @@ typedef struct {
     size_t         nparams;
 } cp_symbol;
 
-typedef struct cp_result cp_result;
+typedef struct cp_result {
+    cp_symbol *syms;
+    size_t n, cap;
+    char *buf;      /* padded scan buffer; freed as soon as parsing ends */
+    const char *err;
+    cp_symbol filedoc;
+    int has_filedoc;
+} cp_result;
 
 /* The shared cross-parser output type, defined in
  * parser/shared/parser_shared.h. Forward-declared here so this header stays
