@@ -31,20 +31,15 @@ typedef struct {
 } cp_doc_param;
 
 typedef struct {
-    const char   *brief;    /* NULL when absent */
-    const char   *returns;  /* NULL when absent */
-    const char   *notes;    /* NULL when absent */
-    cp_doc_param *params;
-    size_t        nparams;
-} cp_doc;
-
-typedef struct {
     cp_symbol_kind kind;
     const char    *name;
     const char    *signature; /* whitespace-collapsed, comment-free */
     uint32_t       line;      /* 1-based line of the declaration    */
-    int            has_doc;
-    cp_doc         doc;
+    const char    *brief;     /* NULL when absent */
+    const char    *returns;   /* NULL when absent */
+    const char    *notes;     /* NULL when absent */
+    cp_doc_param  *params;
+    size_t         nparams;
 } cp_symbol;
 
 typedef struct cp_result cp_result;
@@ -71,7 +66,7 @@ struct Module *cp_parse_file(const char *path);
 const cp_symbol *cp_symbols(const cp_result *r, size_t *count);
 
 /* Module-level doc block (a comment carrying @file/@mainpage), if any. */
-int cp_module_doc(const cp_result *r, cp_doc *out);
+int cp_module_doc(const cp_result *r, cp_symbol *out);
 
 /* NULL on success, else a message describing the failure. */
 const char *cp_error(const cp_result *r);
