@@ -44,6 +44,17 @@ char *xstrndup(const char *s, size_t n)
     return p;
 }
 
+const char *base_filename(const char *path)
+{
+    const char *base = path;
+    const char *p;
+    for (p = path; *p; p++) {
+        if (*p == '/' || *p == '\\')
+            base = p + 1;
+    }
+    return base;
+}
+
 
 
 /*********************************************/
@@ -107,7 +118,7 @@ void free_symbol_content(Symbol * sym) {
 /*********************************************/
 Module * init_module(const char *path) {
     Module * mod = xmalloc(sizeof(Module));
-    mod->filename = xstrdup(path);
+    mod->filename = xstrdup(base_filename(path));
     mod->symbols = NULL;
     mod->symbolCount = 0;
     mod->symbolCap = 0;
