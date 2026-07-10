@@ -51,6 +51,6 @@ typedef struct Module {
     returns -1 on failure
 */
 
-int init_resources();
+int init_resources(void);
 
 #endif
