@@ -39,7 +39,8 @@ typedef struct {
     const char    *returns;   /* NULL when absent */
     const char    *notes;     /* NULL when absent */
     cp_doc_param  *params;
-    size_t         nparams;
+    int            nparams;
+    const char    *diagram;   /* NULL for now; no C/C++ diagram support */
 } cp_symbol;
 
 typedef struct cp_result {
