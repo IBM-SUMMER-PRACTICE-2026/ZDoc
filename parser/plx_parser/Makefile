@@ -8,6 +8,9 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
+debug: CFLAGS += -g -O0 -fsanitize=address -fno-omit-frame-pointer
+debug: $(TARGET)
+
 SHARED_H = ../shared/parser_shared.h ../../extractor/doc_extractor/module_tree/modtree_tables.h
 
 plx_parser.o: plx_parser.c plx_parser.h str_helpers.h parser_helpers.h $(SHARED_H)
