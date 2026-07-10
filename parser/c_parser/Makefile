@@ -35,6 +35,9 @@ all: $(BIN)
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
+debug: CFLAGS += -g -O0 -fsanitize=address -fno-omit-frame-pointer
+debug: $(BIN)
+
 c_parser.o: c_parser.c c_parser.h $(SHARED_H)
 main.o: main.c c_parser.h $(SHARED_H)
 parser_shared_interface.o: ../shared/parser_shared_interface.c $(SHARED_H)
@@ -46,4 +49,4 @@ test: $(BIN)
 clean:
 	-$(RM) $(call fixpath,$(BIN) $(OBJS))
 
-.PHONY: all test clean
+.PHONY: all test debug clean
