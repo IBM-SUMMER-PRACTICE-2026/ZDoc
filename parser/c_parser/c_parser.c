@@ -1155,6 +1155,7 @@ cp_result *cp_parser(const char *path)
         fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
         return NULL;
     }
+    r->filename = dupcstr(path);
     run_scan(r, buf, rd);
     return r;
 }
@@ -1185,6 +1186,7 @@ void cp_result_free(cp_result *r)
     for (size_t i = 0; i < r->n; i++)
         free_symbol_content(&r->syms[i]);
     free(r->syms);
+    free(r->filename);
     free(r);
 }
 
