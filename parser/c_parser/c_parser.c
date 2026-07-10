@@ -698,7 +698,7 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     }
     cp_symbol *sym = &r->syms[r->n++];
     memset(sym, 0, sizeof *sym);
-    sym->kind = k;
+    sym->kind = cp_symbol_kind_name(k);
     sym->line = line;
     sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
     sym->signature = make_sig(ss, se);
@@ -1265,7 +1265,7 @@ static Module *result_to_module(cp_result *r, const char *path)
             sy->signature = (char *)cs->signature;
             cs->signature = NULL;
             sy->line = cs->line;
-            sy->type = dupcstr(cp_symbol_kind_name(cs->kind));
+            sy->type = dupcstr(cs->kind);
             sy->diagram = NULL;
 
             sy->description = (char *)cs->brief;

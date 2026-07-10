@@ -31,7 +31,7 @@ typedef struct {
 } cp_doc_param;
 
 typedef struct {
-    cp_symbol_kind kind;
+    const char    *kind;      /* e.g. "function", "macro"; see cp_symbol_kind_name */
     const char    *name;
     const char    *signature; /* whitespace-collapsed, comment-free */
     uint32_t       line;      /* 1-based line of the declaration    */
