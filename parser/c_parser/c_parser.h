@@ -29,7 +29,7 @@ typedef enum {
 
 typedef struct cp_result {
     Symbol *syms;
-    size_t n, cap;
+    int n, cap;
     char *filename;
 } cp_result;
 
