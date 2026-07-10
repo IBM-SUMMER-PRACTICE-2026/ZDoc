@@ -30,27 +30,24 @@ typedef enum {
 typedef struct cp_result {
     Symbol *syms;
     size_t n, cap;
-    const char *err;
 } cp_result;
 
-/* Parse a buffer (copied internally; caller keeps ownership of src). */
+/* Parse a buffer (copied internally; caller keeps ownership of src). On
+ * failure (out of memory), prints a diagnostic to stderr and returns NULL. */
 cp_result *cp_parse_buffer(const char *src, size_t len);
 
-/* Read and parse a file into the internal cp_result. Never returns NULL
- * except on allocation failure; check cp_error(). */
+/* Read and parse a file into the internal cp_result. On failure (I/O error
+ * or out of memory), prints a diagnostic to stderr and returns NULL. */
 cp_result *cp_parser(const char *path);
 
 /* Read and parse a file into the shared Module (parser_shared.h). Returns a
  * heap Module the caller releases with free_module(). On a parse/IO error,
- * prints to stderr and returns an empty Module (symbolCount 0). Returns NULL
- * only on allocation failure. */
+ * cp_parser() has already printed a diagnostic to stderr; an empty Module
+ * (symbolCount 0) is returned in that case. */
 struct Module *cp_parse_file(const char *path);
 
 /* Symbols in source order. Valid until cp_result_free(). */
 const Symbol *cp_symbols(const cp_result *r, size_t *count);
-
-/* NULL on success, else a message describing the failure. */
-const char *cp_error(const cp_result *r);
 
 const char *cp_symbol_kind_name(cp_symbol_kind k);
 
