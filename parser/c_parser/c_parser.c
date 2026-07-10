@@ -22,22 +22,11 @@
 
 /* -------------------------------------------------------------- allocation */
 
-/* Copy s[0..n) into a fresh heap buffer, NUL-terminated. Each output string
- * is individually owned and released by the shared free_module(). */
-static char *dupn(const char *s, size_t n)
-{
-    char *d = (char *)malloc(n + 1);
-    if (!d)
-        return NULL;
-    memcpy(d, s, n);
-    d[n] = 0;
-    return d;
-}
-
-/* Duplicate a NUL-terminated C string (NULL tolerant). */
+/* Duplicate a NUL-terminated C string (NULL tolerant). Each output string is
+ * individually owned and released by the shared free_module(). */
 static char *dupcstr(const char *s)
 {
-    return s ? dupn(s, strlen(s)) : NULL;
+    return s ? xstrdup(s) : NULL;
 }
 
 /* -------------------------------------------------------- growable string */
@@ -663,7 +652,7 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     Symbol *sym = module_add_symbol(st->res);
     sym->type = dupcstr(cp_symbol_kind_name(k));
     sym->line = line;
-    sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
+    sym->name = xstrndup(nm.s, (size_t)(nm.e - nm.s));
     sym->signature = make_sig(ss, se);
     if (doc->valid) {
         Symbol d = {0};

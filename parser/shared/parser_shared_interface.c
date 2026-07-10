@@ -36,6 +36,14 @@ char *xstrdup(const char *s)
     return p;
 }
 
+char *xstrndup(const char *s, size_t n)
+{
+    char *p = xmalloc(n + 1);
+    memcpy(p, s, n);
+    p[n] = '\0';
+    return p;
+}
+
 
 
 /*********************************************/
