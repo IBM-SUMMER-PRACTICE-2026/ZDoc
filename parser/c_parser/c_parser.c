@@ -8,8 +8,8 @@
  *     brace-matching loop driven by a 256-entry "interesting char" table
  *   - line numbers are computed lazily (memchr over the gap since the last
  *     query) so the hot loops never count newlines
- *   - output strings are individually heap-allocated; cp_result_free walks the
- *     symbols and doc blocks to release them
+ *   - output strings are individually heap-allocated; the shared free_module()
+ *     walks the symbols to release them
  */
 #include "c_parser.h"
 #include "../shared/parser_shared.h"
@@ -23,7 +23,7 @@
 /* -------------------------------------------------------------- allocation */
 
 /* Copy s[0..n) into a fresh heap buffer, NUL-terminated. Each output string
- * is individually owned and released in cp_result_free / free_doc. */
+ * is individually owned and released by the shared free_module(). */
 static char *dupn(const char *s, size_t n)
 {
     char *d = (char *)malloc(n + 1);
@@ -110,7 +110,7 @@ typedef struct {
     uint32_t anchor_line;
     docref doc;              /* pending doc comment awaiting a declaration */
     int depth;               /* decl-scope nesting guard */
-    cp_result *res;
+    Module *res;
 } P;
 
 typedef struct {
@@ -660,17 +660,7 @@ static char *make_sig(const char *a, const char *b)
 static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
                  const char *se, uint32_t line, docref *doc)
 {
-    cp_result *r = st->res;
-    if (r->n == r->cap) {
-        int c = r->cap ? r->cap * 2 : 64;
-        Symbol *ns = (Symbol *)realloc(r->syms, (size_t)c * sizeof *ns);
-        if (!ns)
-            return;
-        r->syms = ns;
-        r->cap = c;
-    }
-    Symbol *sym = &r->syms[r->n++];
-    memset(sym, 0, sizeof *sym);
+    Symbol *sym = module_add_symbol(st->res);
     sym->type = dupcstr(cp_symbol_kind_name(k));
     sym->line = line;
     sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
@@ -1081,11 +1071,11 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
-/* Scan buf[0..len) (which must already carry the 16-byte NUL padding) and
- * release the buffer as soon as the pass finishes: every output string is an
+/* Scan buf[0..len) (which must already carry the 16-byte NUL padding) into m,
+ * releasing the buffer as soon as the pass finishes: every output string is an
  * owned heap copy, so nothing references buf once parsing returns. This is
- * what keeps a parsed result from pinning a whole file-sized allocation. */
-static void run_scan(cp_result *r, char *buf, size_t len)
+ * what keeps a parsed module from pinning a whole file-sized allocation. */
+static void run_scan(Module *m, char *buf, size_t len)
 {
     P st = {0};
     st.begin = buf;
@@ -1096,13 +1086,14 @@ static void run_scan(cp_result *r, char *buf, size_t len)
         st.p += 3; /* UTF-8 BOM */
     st.anchor = st.p;
     st.anchor_line = 1;
-    st.res = r;
+    st.res = m;
     parse_decl_scope(&st, 0);
 
+    module_shrink_to_fit(m);
     free(buf);
 }
 
-cp_result *cp_parse_buffer(const char *src, size_t len)
+Module *cp_parse_buffer(const char *src, size_t len)
 {
     char *buf = (char *)malloc(len + 16);
     if (!buf) {
@@ -1112,17 +1103,12 @@ cp_result *cp_parse_buffer(const char *src, size_t len)
     memcpy(buf, src, len);
     memset(buf + len, 0, 16); /* NUL padding: lookahead never overruns */
 
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r) {
-        free(buf);
-        fprintf(stderr, "zdoc-c-parser: out of memory\n");
-        return NULL;
-    }
-    run_scan(r, buf, len);
-    return r;
+    Module *m = init_module("<buffer>");
+    run_scan(m, buf, len);
+    return m;
 }
 
-cp_result *cp_parser(const char *path)
+Module *cp_parser(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -1149,22 +1135,9 @@ cp_result *cp_parser(const char *path)
     fclose(f);
     memset(buf + rd, 0, 16); /* NUL padding from the actual bytes read */
 
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r) {
-        free(buf);
-        fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
-        return NULL;
-    }
-    r->filename = dupcstr(path);
-    run_scan(r, buf, rd);
-    return r;
-}
-
-const Symbol *cp_symbols(const cp_result *r, size_t *count)
-{
-    if (count)
-        *count = r ? (size_t)r->n : 0;
-    return r ? r->syms : NULL;
+    Module *m = init_module(path);
+    run_scan(m, buf, rd);
+    return m;
 }
 
 const char *cp_symbol_kind_name(cp_symbol_kind k)
@@ -1179,44 +1152,10 @@ const char *cp_symbol_kind_name(cp_symbol_kind k)
     return "unknown";
 }
 
-void cp_result_free(cp_result *r)
-{
-    if (!r)
-        return;
-    for (int i = 0; i < r->n; i++)
-        free_symbol_content(&r->syms[i]);
-    free(r->syms);
-    free(r->filename);
-    free(r);
-}
-
-/* ------------------------------------------------ shared Module adapter */
-
-/* Hand the parsed symbols to a shared Module. The symbols are already stored
- * as Symbol values, so the whole array is transferred wholesale (no per-field
- * copy) and the cp_result is emptied so cp_result_free only tears down the
- * leftovers (the dropped file-level doc, the scan buffer, the result itself).
- * The C-only module doc has no shared home and is dropped. */
-static Module *result_to_module(cp_result *r, const char *path)
-{
-    Module *m = init_module(path);
-
-    m->symbols = r->syms;
-    m->symbolCount = r->n;
-    m->symbolCap = r->cap;
-    r->syms = NULL;
-    r->n = r->cap = 0;
-
-    module_shrink_to_fit(m);
-    cp_result_free(r);
-    return m;
-}
-
 Module *cp_parse_file(const char *path)
 {
-    cp_result *r = cp_parser(path);
-    if (!r)
+    Module *m = cp_parser(path);
+    if (!m)
         return init_module(path); /* cp_parser() already reported the failure */
-
-    return result_to_module(r, path);
+    return m;
 }

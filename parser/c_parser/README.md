@@ -32,7 +32,7 @@ concept.
 - **Lazy line numbers.** Newlines are counted with `memchr` only over the
   gap since the previous symbol, so hot loops never track lines.
 - **Heap-allocated strings.** Each output string is individually allocated;
-  `cp_result_free` walks the symbols and doc blocks to release them.
+  the shared `free_module()` walks the symbols to release them.
 
 ## Performance
 
@@ -59,9 +59,9 @@ current implementation provides:
   children of one parent are contiguous. The links can therefore be
   stamped during emission (track the current parent's index in the `P`
   state, restore it when the recursion unwinds) or rebuilt afterwards in
-  one linear post-pass over `cp_symbols()` — no re-parse needed.
+  one linear post-pass over the module's `symbols` array — no re-parse needed.
 - **One contiguous array, index-stable.** Symbols live in a single
-  realloc-grown array (`cp_result.syms`, now shared `Symbol` records); an
+  realloc-grown array (`Module.symbols`, shared `Symbol` records); an
   index assigned at emit time stays valid even as the array grows, where
   pointers would dangle. Adding two `int32` fields to `Symbol` costs 8
   bytes/node and zero extra allocations — heap-linked nodes would lose on
@@ -112,11 +112,12 @@ ready for the ZDoc extractor/renderer stages:
 Link `c_parser.c` and include `c_parser.h`:
 
 ```c
-cp_result *r = cp_parser("foo.cpp");
-size_t n;
-const Symbol *syms = cp_symbols(r, &n);   /* shared parser_shared.h Symbol */
-/* ... */
-cp_result_free(r);
+Module *m = cp_parse_file("foo.cpp");   /* shared parser_shared.h Module */
+for (int i = 0; i < m->symbolCount; i++) {
+    const Symbol *s = &m->symbols[i];
+    /* ... */
+}
+free_module(m);
 ```
 
 ## Known limitations
