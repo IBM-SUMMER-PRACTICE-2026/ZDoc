@@ -387,20 +387,16 @@ static void ws_quiet(P *st)
     }
 }
 
-static int parse_doc_text(P *st, docref d, Symbol *out);
-
 /* A doc block carrying @file/@mainpage documents the module, not the next
- * symbol. Detect it as soon as the block is scanned so it can't mis-attach. */
-static int maybe_filedoc(P *st, docref d)
+ * declaration; ZDoc has no module-level doc concept, so such a block is
+ * simply discarded rather than mis-attached to whatever follows it. */
+static int is_filedoc_block(docref d)
 {
     for (const char *q = d.s; q + 5 <= d.e; q++) {
         if ((*q == '@' || *q == '\\') &&
             ((memcmp(q + 1, "file", 4) == 0 && !isalpha((unsigned char)q[5])) ||
-             (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0))) {
-            Symbol scratch;
-            parse_doc_text(st, d, &scratch); /* stores into res->filedoc */
+             (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0)))
             return 1;
-        }
     }
     return 0;
 }
@@ -423,7 +419,7 @@ static void ws_and_docs(P *st)
             skip_block(st);
             if (isdoc) {
                 docref d = {cs, st->p, 0, 1};
-                if (maybe_filedoc(st, d))
+                if (is_filedoc_block(d))
                     st->doc.valid = 0;
                 else
                     st->doc = d;
@@ -439,7 +435,7 @@ static void ws_and_docs(P *st)
                     st->doc.e = st->p; /* extend the run */
                 } else {
                     docref d = {cs, st->p, 1, 1};
-                    if (maybe_filedoc(st, d))
+                    if (is_filedoc_block(d))
                         st->doc.valid = 0;
                     else
                         st->doc = d;
@@ -470,10 +466,10 @@ typedef struct {
     sb name, desc;
 } draft_param;
 
-/* Parse the doc-comment text into `out`. Returns 1 when the doc attaches
- * to the symbol; 0 for file-level docs (@file/@mainpage), which are stored
- * on the result instead. */
-static int parse_doc_text(P *st, docref d, Symbol *out)
+/* Parse the doc-comment text into `out`. Returns 1 when the doc has any
+ * content worth attaching to the symbol, 0 for an empty doc block. Callers
+ * must have already ruled out @file/@mainpage blocks via is_filedoc_block. */
+static int parse_doc_text(docref d, Symbol *out)
 {
     const char *s = d.s, *e = d.e;
     if (!d.is_line) {
@@ -486,7 +482,6 @@ static int parse_doc_text(P *st, docref d, Symbol *out)
     draft_param *dp = NULL;
     size_t np = 0, cp_ = 0;
     enum { F_BRIEF, F_PARAM, F_RET, F_NOTE } cur = F_BRIEF;
-    int is_filedoc = 0;
 
     const char *ls = s;
     while (ls < e) {
@@ -562,10 +557,6 @@ static int parse_doc_text(P *st, docref d, Symbol *out)
                        tag_is(t, tn, "result") || tag_is(t, tn, "retval")) {
                 cur = F_RET;
                 sb_join(&rets, r, b);
-            } else if (tag_is(t, tn, "file") || tag_is(t, tn, "mainpage") ||
-                       tag_is(t, tn, "page")) {
-                is_filedoc = 1;
-                cur = F_BRIEF; /* the tag argument is just the filename */
             } else if (tag_is(t, tn, "note") || tag_is(t, tn, "details") ||
                        tag_is(t, tn, "remark") || tag_is(t, tn, "remarks")) {
                 cur = F_NOTE;
@@ -614,17 +605,6 @@ static int parse_doc_text(P *st, docref d, Symbol *out)
     }
     free(dp);
 
-    if (is_filedoc) {
-        if (!st->res->has_filedoc) {
-            st->res->filedoc = doc;
-            st->res->has_filedoc = 1;
-        } else {
-            /* only the first @file/@mainpage is kept; free the rest */
-            free_symbol_content(&doc);
-        }
-        memset(out, 0, sizeof *out);
-        return 0;
-    }
     *out = doc;
     return doc.description || doc.output || doc.notes || doc.inputCount;
 }
@@ -697,7 +677,7 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     sym->signature = make_sig(ss, se);
     if (doc->valid) {
         Symbol d = {0};
-        if (parse_doc_text(st, *doc, &d)) {
+        if (parse_doc_text(*doc, &d)) {
             sym->description = d.description;
             sym->output = d.output;
             sym->notes = d.notes;
@@ -1185,15 +1165,6 @@ const Symbol *cp_symbols(const cp_result *r, size_t *count)
     return r ? r->syms : NULL;
 }
 
-int cp_module_doc(const cp_result *r, Symbol *out)
-{
-    if (!r || !r->has_filedoc)
-        return 0;
-    if (out)
-        *out = r->filedoc;
-    return 1;
-}
-
 const char *cp_error(const cp_result *r)
 {
     return r ? r->err : "out of memory";
@@ -1217,8 +1188,6 @@ void cp_result_free(cp_result *r)
         return;
     for (size_t i = 0; i < r->n; i++)
         free_symbol_content(&r->syms[i]);
-    if (r->has_filedoc)
-        free_symbol_content(&r->filedoc);
     free(r->syms);
     free(r->buf);
     free(r);
