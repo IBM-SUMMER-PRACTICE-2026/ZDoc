@@ -1081,26 +1081,25 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
-/* Scan r->buf[0..len) (which must already carry the 16-byte NUL padding) and
+/* Scan buf[0..len) (which must already carry the 16-byte NUL padding) and
  * release the buffer as soon as the pass finishes: every output string is an
- * owned heap copy, so nothing references r->buf once parsing returns. This is
+ * owned heap copy, so nothing references buf once parsing returns. This is
  * what keeps a parsed result from pinning a whole file-sized allocation. */
-static void run_scan(cp_result *r, size_t len)
+static void run_scan(cp_result *r, char *buf, size_t len)
 {
     P st = {0};
-    st.begin = r->buf;
-    st.end = r->buf + len;
-    st.p = r->buf;
-    if (len >= 3 && (unsigned char)r->buf[0] == 0xEF &&
-        (unsigned char)r->buf[1] == 0xBB && (unsigned char)r->buf[2] == 0xBF)
+    st.begin = buf;
+    st.end = buf + len;
+    st.p = buf;
+    if (len >= 3 && (unsigned char)buf[0] == 0xEF &&
+        (unsigned char)buf[1] == 0xBB && (unsigned char)buf[2] == 0xBF)
         st.p += 3; /* UTF-8 BOM */
     st.anchor = st.p;
     st.anchor_line = 1;
     st.res = r;
     parse_decl_scope(&st, 0);
 
-    free(r->buf);
-    r->buf = NULL;
+    free(buf);
 }
 
 cp_result *cp_parse_buffer(const char *src, size_t len)
@@ -1108,14 +1107,14 @@ cp_result *cp_parse_buffer(const char *src, size_t len)
     cp_result *r = (cp_result *)calloc(1, sizeof *r);
     if (!r)
         return NULL;
-    r->buf = (char *)malloc(len + 16);
-    if (!r->buf) {
+    char *buf = (char *)malloc(len + 16);
+    if (!buf) {
         r->err = "out of memory";
         return r;
     }
-    memcpy(r->buf, src, len);
-    memset(r->buf + len, 0, 16); /* NUL padding: lookahead never overruns */
-    run_scan(r, len);
+    memcpy(buf, src, len);
+    memset(buf + len, 0, 16); /* NUL padding: lookahead never overruns */
+    run_scan(r, buf, len);
     return r;
 }
 
@@ -1145,16 +1144,16 @@ cp_result *cp_parser(const char *path)
         return NULL;
     }
     /* Read straight into the padded scan buffer - no intermediate copy. */
-    r->buf = (char *)malloc((size_t)sz + 16);
-    if (!r->buf) {
+    char *buf = (char *)malloc((size_t)sz + 16);
+    if (!buf) {
         fclose(f);
         r->err = "out of memory";
         return r;
     }
-    size_t rd = fread(r->buf, 1, (size_t)sz, f);
+    size_t rd = fread(buf, 1, (size_t)sz, f);
     fclose(f);
-    memset(r->buf + rd, 0, 16); /* NUL padding from the actual bytes read */
-    run_scan(r, rd);
+    memset(buf + rd, 0, 16); /* NUL padding from the actual bytes read */
+    run_scan(r, buf, rd);
     return r;
 }
 
@@ -1189,7 +1188,6 @@ void cp_result_free(cp_result *r)
     for (size_t i = 0; i < r->n; i++)
         free_symbol_content(&r->syms[i]);
     free(r->syms);
-    free(r->buf);
     free(r);
 }
 
