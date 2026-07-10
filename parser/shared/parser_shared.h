@@ -95,5 +95,7 @@ void *xrealloc(void *p, size_t n);
 char *xstrdup(const char *s);
 char *xstrndup(const char *s, size_t n);
 
+const char *base_filename(const char *path);
+
 
 #endif
