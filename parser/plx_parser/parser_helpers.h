@@ -25,6 +25,14 @@ char *match_procentry(const char *line);
 /*********************************************/
 /*               SIGNATURE                   */
 /*********************************************/
+/* Signature capture state: scan until ';' at paren depth 0, outside
+ * comments and quoted strings. Comments are dropped from the signature. */
+typedef struct {
+    int depth;
+    int inComment;
+    int inString;
+} SigState;
+
 int sig_consume(StrBuf *sig, const char *line, SigState *st);
 
 
@@ -32,6 +40,15 @@ int sig_consume(StrBuf *sig, const char *line, SigState *st);
 /*********************************************/
 /*               LABEL LOOKUP                */
 /*********************************************/
+typedef enum {
+    FIELD_NONE = -1, /* not a labeled line */
+    FIELD_NAME,
+    FIELD_DESCRIPTION,
+    FIELD_INPUT,
+    FIELD_OUTPUT,
+    FIELD_UNKNOWN /* labeled line, but the label is not recognized */
+} FieldId;
+
 FieldId parse_label(const char *content, const char **rest);
 
 
@@ -47,6 +64,16 @@ int is_banner(const char *content);
 /*********************************************/
 /*          DOC BLOCK ACCUMULATOR            */
 /*********************************************/
+typedef struct {
+    int active;      /* at least one recognized field collected */
+    int closed;      /* end banner seen; awaiting the PROC statement */
+    int prolog;      /* collected from a .plxmac Method Prolog block */
+    FieldId current; /* field that continuation lines append to */
+    int startLine;
+    StrBuf name, description, output;
+    StrList inputLines; /* input kept per line for param splitting */
+} DocBlock;
+
 void block_init(DocBlock *b);
 void block_reset(DocBlock *b);
 void block_append(DocBlock *b, FieldId field, const char *text);
