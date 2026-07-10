@@ -23,7 +23,7 @@ parser_shared_interface.o: ../shared/parser_shared_interface.c $(SHARED_H)
 ifeq ($(OS),Windows_NT)
 clean: SHELL := cmd.exe
 clean:
-	-del /f /q $(subst /,\,$(TARGET) $(OBJS)) 2>NUL
+	-del /f /q $(subst /,\,$(TARGET).exe $(OBJS)) 2>NUL
 else
 clean:
 	rm -f $(TARGET) $(OBJS)
