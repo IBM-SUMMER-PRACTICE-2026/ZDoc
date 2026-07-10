@@ -30,6 +30,7 @@ typedef enum {
 typedef struct cp_result {
     Symbol *syms;
     size_t n, cap;
+    char *filename;
 } cp_result;
 
 /* Parse a buffer (copied internally; caller keeps ownership of src). On
