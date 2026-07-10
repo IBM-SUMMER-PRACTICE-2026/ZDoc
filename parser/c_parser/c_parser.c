@@ -103,15 +103,6 @@ static const char *sb_done(sb *s)
 
 /* ----------------------------------------------------------------- result */
 
-struct cp_result {
-    cp_symbol *syms;
-    size_t n, cap;
-    char *buf;      /* padded scan buffer; freed as soon as parsing ends */
-    const char *err;
-    cp_symbol filedoc;
-    int has_filedoc;
-};
-
 /* ----------------------------------------------------------- parser state */
 
 typedef struct {
