@@ -81,11 +81,6 @@ typedef struct {
 Fields a parser has no logic for yet are left `NULL`/`0` (the symbol is
 `memset` to zero on allocation).
 
-**Fields not yet represented** (present in a source parser, no shared home — revisit
-before wiring those parsers over):
-
-- c_parser's error string (`cp_error`) has no `Module`-level home.
-
 **Integration status:** `plx_parser` and `java_parser` are wired over to these
 structs. `plx` populates `line`/`type` (always `"procedure"`) and leaves
 `notes`/`diagram` `NULL`; `java` populates `line` and every doc field

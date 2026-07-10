@@ -1104,16 +1104,20 @@ static void run_scan(cp_result *r, char *buf, size_t len)
 
 cp_result *cp_parse_buffer(const char *src, size_t len)
 {
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r)
-        return NULL;
     char *buf = (char *)malloc(len + 16);
     if (!buf) {
-        r->err = "out of memory";
-        return r;
+        fprintf(stderr, "zdoc-c-parser: out of memory\n");
+        return NULL;
     }
     memcpy(buf, src, len);
     memset(buf + len, 0, 16); /* NUL padding: lookahead never overruns */
+
+    cp_result *r = (cp_result *)calloc(1, sizeof *r);
+    if (!r) {
+        free(buf);
+        fprintf(stderr, "zdoc-c-parser: out of memory\n");
+        return NULL;
+    }
     run_scan(r, buf, len);
     return r;
 }
@@ -1122,37 +1126,35 @@ cp_result *cp_parser(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        cp_result *r = (cp_result *)calloc(1, sizeof *r);
-        if (r)
-            r->err = strerror(errno);
-        return r;
+        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, strerror(errno));
+        return NULL;
     }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     if (sz < 0) {
         fclose(f);
-        cp_result *r = (cp_result *)calloc(1, sizeof *r);
-        if (r)
-            r->err = "unseekable file";
-        return r;
+        fprintf(stderr, "zdoc-c-parser: %s: unseekable file\n", path);
+        return NULL;
     }
     fseek(f, 0, SEEK_SET);
 
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r) {
-        fclose(f);
-        return NULL;
-    }
     /* Read straight into the padded scan buffer - no intermediate copy. */
     char *buf = (char *)malloc((size_t)sz + 16);
     if (!buf) {
         fclose(f);
-        r->err = "out of memory";
-        return r;
+        fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
+        return NULL;
     }
     size_t rd = fread(buf, 1, (size_t)sz, f);
     fclose(f);
     memset(buf + rd, 0, 16); /* NUL padding from the actual bytes read */
+
+    cp_result *r = (cp_result *)calloc(1, sizeof *r);
+    if (!r) {
+        free(buf);
+        fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
+        return NULL;
+    }
     run_scan(r, buf, rd);
     return r;
 }
@@ -1162,11 +1164,6 @@ const Symbol *cp_symbols(const cp_result *r, size_t *count)
     if (count)
         *count = r ? r->n : 0;
     return r ? r->syms : NULL;
-}
-
-const char *cp_error(const cp_result *r)
-{
-    return r ? r->err : "out of memory";
 }
 
 const char *cp_symbol_kind_name(cp_symbol_kind k)
@@ -1217,13 +1214,7 @@ Module *cp_parse_file(const char *path)
 {
     cp_result *r = cp_parser(path);
     if (!r)
-        return NULL; /* allocation failure */
-
-    if (cp_error(r)) {
-        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, cp_error(r));
-        cp_result_free(r);
-        return init_module(path); /* empty module */
-    }
+        return init_module(path); /* cp_parser() already reported the failure */
 
     return result_to_module(r, path);
 }
