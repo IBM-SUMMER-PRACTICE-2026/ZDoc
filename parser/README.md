@@ -17,7 +17,7 @@ files themselves.
 ## Shared JSON contract
 
 Every parser emits the same shape so the rest of the pipeline stays
-language-agnostic. `module_doc` and each symbol's `doc` are optional.
+language-agnostic. Each symbol's `doc` is optional.
 
 ```json
 {
@@ -27,7 +27,6 @@ language-agnostic. `module_doc` and each symbol's `doc` are optional.
     {
       "file": "path/to/source.ext",
       "language": "<lang>",
-      "module_doc": { "brief": "…", "params": [], "returns": "…", "notes": "…" },
       "symbols": [
         {
           "kind": "function|prototype|macro|type|variable|procedure|entry",

@@ -17,8 +17,9 @@ per-token allocations.
 Doc comments (`/** */`, `/*! */`, `///`, `//!`) are parsed for
 `@brief`, `@param` / `@tparam` (incl. `[in]`/`[out]`), `@return(s)` /
 `@retval`, `@note` / `@remark(s)` / `@details`; unknown tags are kept
-verbatim under notes. A block carrying `@file` / `@mainpage` becomes the
-module-level doc instead of attaching to the next symbol.
+verbatim under notes. A block carrying `@file` / `@mainpage` is discarded
+rather than mis-attached to the next symbol — ZDoc has no module-level doc
+concept.
 
 ## Why it is fast
 
@@ -99,7 +100,6 @@ ready for the ZDoc extractor/renderer stages:
 ```json
 {"zdoc_parser":"c","version":"0.1.0","modules":[
   {"file":"foo.c","language":"c",
-   "module_doc":{"brief":"..."},
    "symbols":[
      {"kind":"prototype","line":26,"name":"widget_init",
       "signature":"int widget_init(void *anchor, unsigned flags)",

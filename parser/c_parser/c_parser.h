@@ -32,8 +32,6 @@ typedef struct cp_result {
     size_t n, cap;
     char *buf;      /* padded scan buffer; freed as soon as parsing ends */
     const char *err;
-    Symbol filedoc;
-    int has_filedoc;
 } cp_result;
 
 /* Parse a buffer (copied internally; caller keeps ownership of src). */
@@ -51,9 +49,6 @@ struct Module *cp_parse_file(const char *path);
 
 /* Symbols in source order. Valid until cp_result_free(). */
 const Symbol *cp_symbols(const cp_result *r, size_t *count);
-
-/* Module-level doc block (a comment carrying @file/@mainpage), if any. */
-int cp_module_doc(const cp_result *r, Symbol *out);
 
 /* NULL on success, else a message describing the failure. */
 const char *cp_error(const cp_result *r);
