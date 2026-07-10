@@ -10,6 +10,9 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
+debug: CFLAGS += -g -O0 -fsanitize=address -fno-omit-frame-pointer
+debug: $(TARGET)
+
 main.o: main.c java_parser.h $(SHARED_H)
 java_parser.o: java_parser.c java_parser.h util.h doc_comment.h $(SHARED_H)
 doc_comment.o: doc_comment.c doc_comment.h util.h java_parser.h $(SHARED_H)
@@ -25,4 +28,4 @@ clean:
 	rm -f $(TARGET) $(OBJS)
 endif
 
-.PHONY: all clean
+.PHONY: all debug clean

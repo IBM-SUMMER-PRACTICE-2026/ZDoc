@@ -68,6 +68,9 @@ all: $(BIN)
 $(BIN): $(SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -o $@ $(SRCS)
 
+debug: CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+debug: $(BIN)
+
 # Smoke test: walk this directory. The daemon returns 0 on a successful walk.
 test: $(BIN)
 	$(RUN) .
@@ -75,4 +78,4 @@ test: $(BIN)
 clean:
 	-$(RM) $(call fixpath,$(BIN))
 
-.PHONY: all test clean
+.PHONY: all test debug clean
