@@ -156,5 +156,6 @@ int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
     }
     free(params);
     free(param_descs);
+    symbol_shrink_inputs_to_fit(out);
     return 1;
 }

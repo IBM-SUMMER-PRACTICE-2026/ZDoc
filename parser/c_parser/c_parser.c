@@ -584,6 +584,7 @@ static int parse_doc_text(docref d, Symbol *out)
                 doc.input[i].description = (char *)sb_done(&dp[i].desc);
             }
             doc.inputCount = (int)np;
+            doc.inputCap = (int)np;
         } else {
             /* OOM: drain the draft buffers so they don't leak */
             for (size_t i = 0; i < np; i++) {
@@ -662,6 +663,7 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
             sym->notes = d.notes;
             sym->input = d.input;
             sym->inputCount = d.inputCount;
+            sym->inputCap = d.inputCap;
         }
         doc->valid = 0;
     }
