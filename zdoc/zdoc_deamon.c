@@ -62,6 +62,8 @@ void thread_func() {
 
         finished->pathIndex = curr_possition_in_arry;
         global_parsed_files_arry[curr_possition_in_arry] = *finished;
+
+        free(finished);
     }
 }
 
@@ -105,6 +107,8 @@ int main(int argc, char* argv[]) {
     double elapsed = now_seconds() - start;
     printf("%d threads parsed %d files in %.3f s\n",
            NUM_THREADS, files_count, elapsed);
+
+        
 
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
