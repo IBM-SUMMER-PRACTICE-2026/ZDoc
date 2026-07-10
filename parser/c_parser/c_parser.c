@@ -40,7 +40,7 @@ static void free_doc(cp_symbol *d)
     free((char *)d->brief);
     free((char *)d->returns);
     free((char *)d->notes);
-    for (size_t i = 0; i < d->nparams; i++) {
+    for (int i = 0; i < d->nparams; i++) {
         free((char *)d->params[i].name);
         free((char *)d->params[i].desc);
     }
@@ -1266,7 +1266,8 @@ static Module *result_to_module(cp_result *r, const char *path)
             cs->signature = NULL;
             sy->line = cs->line;
             sy->type = dupcstr(cs->kind);
-            sy->diagram = NULL;
+            sy->diagram = (char *)cs->diagram;
+            cs->diagram = NULL;
 
             sy->description = (char *)cs->brief;
             cs->brief = NULL;
@@ -1275,7 +1276,7 @@ static Module *result_to_module(cp_result *r, const char *path)
             sy->notes = (char *)cs->notes;
             cs->notes = NULL;
 
-            for (size_t j = 0; j < cs->nparams; j++)
+            for (int j = 0; j < cs->nparams; j++)
                 symbol_add_input(sy, cs->params[j].name,
                                   cs->params[j].desc);
         }
