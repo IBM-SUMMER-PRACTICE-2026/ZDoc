@@ -30,7 +30,6 @@ typedef enum {
 typedef struct cp_result {
     Symbol *syms;
     size_t n, cap;
-    char *buf;      /* padded scan buffer; freed as soon as parsing ends */
     const char *err;
 } cp_result;
 
