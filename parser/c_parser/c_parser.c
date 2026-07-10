@@ -1093,21 +1093,6 @@ static void run_scan(Module *m, char *buf, size_t len)
     free(buf);
 }
 
-Module *cp_parse_buffer(const char *src, size_t len)
-{
-    char *buf = (char *)malloc(len + 16);
-    if (!buf) {
-        fprintf(stderr, "zdoc-c-parser: out of memory\n");
-        return NULL;
-    }
-    memcpy(buf, src, len);
-    memset(buf + len, 0, 16); /* NUL padding: lookahead never overruns */
-
-    Module *m = init_module("<buffer>");
-    run_scan(m, buf, len);
-    return m;
-}
-
 Module *cp_parser(const char *path)
 {
     FILE *f = fopen(path, "rb");

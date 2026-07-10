@@ -27,12 +27,6 @@ typedef enum {
     CP_SYM_VARIABLE    /* documented file- or class-scope variable  */
 } cp_symbol_kind;
 
-/* Parse a buffer into a heap Module (parser_shared.h); the caller releases it
- * with free_module(). The source is copied internally (caller keeps ownership
- * of src) and the module's filename is set to "<buffer>". On failure (out of
- * memory), prints a diagnostic to stderr and returns NULL. */
-Module *cp_parse_buffer(const char *src, size_t len);
-
 /* Read and parse a file into a heap Module (parser_shared.h); the caller
  * releases it with free_module(). On failure (I/O error or out of memory),
  * prints a diagnostic to stderr and returns NULL. */
