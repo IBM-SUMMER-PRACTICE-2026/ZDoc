@@ -11,18 +11,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ZDOC_C_PARSER_VERSION "0.1.0"
 
 static int emit_module(const char *path)
 {
+    clock_t t0 = clock();
     Module *m = cp_parse_file(path);
+    clock_t t1 = clock();
     if (!m) {
         fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
         return 1;
     }
     print_module(m);
     free_module(m);
+    fflush(stdout);
+    fprintf(stderr, "%s: parsed in %.3f ms\n", path,
+                (double)(t1 - t0) * 1000.0 / CLOCKS_PER_SEC);
     return 0;
 }
 
