@@ -7,12 +7,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "java_parser.h"
 
 #define ZDOC_JAVA_PARSER_VERSION "0.1.0"
 
 static int emit_module(const char *path) {
+    clock_t t0 = clock();
     Module *m = java_parse(path);
+    clock_t t1 = clock();
     if(!m) {
         fprintf(stderr, "zdoc-java-parser: %s: out of memory\n", path);
         return 1;
@@ -20,6 +23,9 @@ static int emit_module(const char *path) {
 
     print_module(m);
     free_module(m);
+    fflush(stdout);
+    fprintf(stderr, "%s: parsed in %.3f ms\n", path,
+                (double)(t1 - t0) * 1000.0 / CLOCKS_PER_SEC);
     
     return 0;
 }
