@@ -34,17 +34,10 @@ static char *dupn(const char *s, size_t n)
     return d;
 }
 
-/* Free every heap doc string a cp_symbol owns (all fields tolerate NULL). */
-static void free_doc(cp_symbol *d)
+/* Duplicate a NUL-terminated C string (NULL tolerant). */
+static char *dupcstr(const char *s)
 {
-    free((char *)d->brief);
-    free((char *)d->returns);
-    free((char *)d->notes);
-    for (int i = 0; i < d->nparams; i++) {
-        free((char *)d->params[i].name);
-        free((char *)d->params[i].desc);
-    }
-    free(d->params);
+    return s ? dupn(s, strlen(s)) : NULL;
 }
 
 /* -------------------------------------------------------- growable string */
@@ -394,7 +387,7 @@ static void ws_quiet(P *st)
     }
 }
 
-static int parse_doc_text(P *st, docref d, cp_symbol *out);
+static int parse_doc_text(P *st, docref d, Symbol *out);
 
 /* A doc block carrying @file/@mainpage documents the module, not the next
  * symbol. Detect it as soon as the block is scanned so it can't mis-attach. */
@@ -404,7 +397,7 @@ static int maybe_filedoc(P *st, docref d)
         if ((*q == '@' || *q == '\\') &&
             ((memcmp(q + 1, "file", 4) == 0 && !isalpha((unsigned char)q[5])) ||
              (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0))) {
-            cp_symbol scratch;
+            Symbol scratch;
             parse_doc_text(st, d, &scratch); /* stores into res->filedoc */
             return 1;
         }
@@ -480,7 +473,7 @@ typedef struct {
 /* Parse the doc-comment text into `out`. Returns 1 when the doc attaches
  * to the symbol; 0 for file-level docs (@file/@mainpage), which are stored
  * on the result instead. */
-static int parse_doc_text(P *st, docref d, cp_symbol *out)
+static int parse_doc_text(P *st, docref d, Symbol *out)
 {
     const char *s = d.s, *e = d.e;
     if (!d.is_line) {
@@ -599,18 +592,18 @@ static int parse_doc_text(P *st, docref d, cp_symbol *out)
         }
     }
 
-    cp_symbol doc = {0};
-    doc.brief = sb_done(&brief);
-    doc.returns = sb_done(&rets);
-    doc.notes = sb_done(&notes);
+    Symbol doc = {0};
+    doc.description = (char *)sb_done(&brief);
+    doc.output = (char *)sb_done(&rets);
+    doc.notes = (char *)sb_done(&notes);
     if (np) {
-        doc.params = (cp_doc_param *)malloc(np * sizeof *doc.params);
-        if (doc.params) {
+        doc.input = (InputParam *)malloc(np * sizeof *doc.input);
+        if (doc.input) {
             for (size_t i = 0; i < np; i++) {
-                doc.params[i].name = sb_done(&dp[i].name);
-                doc.params[i].desc = sb_done(&dp[i].desc);
+                doc.input[i].name = (char *)sb_done(&dp[i].name);
+                doc.input[i].description = (char *)sb_done(&dp[i].desc);
             }
-            doc.nparams = np;
+            doc.inputCount = (int)np;
         } else {
             /* OOM: drain the draft buffers so they don't leak */
             for (size_t i = 0; i < np; i++) {
@@ -627,13 +620,13 @@ static int parse_doc_text(P *st, docref d, cp_symbol *out)
             st->res->has_filedoc = 1;
         } else {
             /* only the first @file/@mainpage is kept; free the rest */
-            free_doc(&doc);
+            free_symbol_content(&doc);
         }
         memset(out, 0, sizeof *out);
         return 0;
     }
     *out = doc;
-    return doc.brief || doc.returns || doc.notes || doc.nparams;
+    return doc.description || doc.output || doc.notes || doc.inputCount;
 }
 
 /* ------------------------------------------------------------- emission */
@@ -690,26 +683,26 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     cp_result *r = st->res;
     if (r->n == r->cap) {
         size_t c = r->cap ? r->cap * 2 : 64;
-        cp_symbol *ns = (cp_symbol *)realloc(r->syms, c * sizeof *ns);
+        Symbol *ns = (Symbol *)realloc(r->syms, c * sizeof *ns);
         if (!ns)
             return;
         r->syms = ns;
         r->cap = c;
     }
-    cp_symbol *sym = &r->syms[r->n++];
+    Symbol *sym = &r->syms[r->n++];
     memset(sym, 0, sizeof *sym);
-    sym->kind = cp_symbol_kind_name(k);
+    sym->type = dupcstr(cp_symbol_kind_name(k));
     sym->line = line;
     sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
     sym->signature = make_sig(ss, se);
     if (doc->valid) {
-        cp_symbol d = {0};
+        Symbol d = {0};
         if (parse_doc_text(st, *doc, &d)) {
-            sym->brief = d.brief;
-            sym->returns = d.returns;
+            sym->description = d.description;
+            sym->output = d.output;
             sym->notes = d.notes;
-            sym->params = d.params;
-            sym->nparams = d.nparams;
+            sym->input = d.input;
+            sym->inputCount = d.inputCount;
         }
         doc->valid = 0;
     }
@@ -1185,14 +1178,14 @@ cp_result *cp_parser(const char *path)
     return r;
 }
 
-const cp_symbol *cp_symbols(const cp_result *r, size_t *count)
+const Symbol *cp_symbols(const cp_result *r, size_t *count)
 {
     if (count)
         *count = r ? r->n : 0;
     return r ? r->syms : NULL;
 }
 
-int cp_module_doc(const cp_result *r, cp_symbol *out)
+int cp_module_doc(const cp_result *r, Symbol *out)
 {
     if (!r || !r->has_filedoc)
         return 0;
@@ -1222,14 +1215,10 @@ void cp_result_free(cp_result *r)
 {
     if (!r)
         return;
-    for (size_t i = 0; i < r->n; i++) {
-        cp_symbol *s = &r->syms[i];
-        free((char *)s->name);
-        free((char *)s->signature);
-        free_doc(s);
-    }
+    for (size_t i = 0; i < r->n; i++)
+        free_symbol_content(&r->syms[i]);
     if (r->has_filedoc)
-        free_doc(&r->filedoc);
+        free_symbol_content(&r->filedoc);
     free(r->syms);
     free(r->buf);
     free(r);
@@ -1237,50 +1226,20 @@ void cp_result_free(cp_result *r)
 
 /* ------------------------------------------------ shared Module adapter */
 
-/* Duplicate a C string with dupn (reuses the module's owned-string helper). */
-static char *dupcstr(const char *s)
-{
-    return s ? dupn(s, strlen(s)) : NULL;
-}
-
-/* Move every owned string out of a parsed cp_result into a shared Module.
- * Strings are transferred (not copied); the cp_symbol fields are cleared so
- * cp_result_free then tears down only the leftovers (the emptied doc blocks,
- * the file-level doc we drop, the symbol array and the result itself).
- *
- * Field mapping: kind -> type (as a string), brief -> description,
- * returns -> output, notes -> notes, params -> input. The
- * C-only module doc has no shared home and is dropped. */
+/* Hand the parsed symbols to a shared Module. The symbols are already stored
+ * as Symbol values, so the whole array is transferred wholesale (no per-field
+ * copy) and the cp_result is emptied so cp_result_free only tears down the
+ * leftovers (the dropped file-level doc, the scan buffer, the result itself).
+ * The C-only module doc has no shared home and is dropped. */
 static Module *result_to_module(cp_result *r, const char *path)
 {
     Module *m = init_module(path);
 
-    if (r->n) {
-        for (size_t i = 0; i < r->n; i++) {
-            cp_symbol *cs = &r->syms[i];
-            Symbol *sy = module_add_symbol(m);
-
-            sy->name = (char *)cs->name;
-            cs->name = NULL;
-            sy->signature = (char *)cs->signature;
-            cs->signature = NULL;
-            sy->line = cs->line;
-            sy->type = dupcstr(cs->kind);
-            sy->diagram = (char *)cs->diagram;
-            cs->diagram = NULL;
-
-            sy->description = (char *)cs->brief;
-            cs->brief = NULL;
-            sy->output = (char *)cs->returns;
-            cs->returns = NULL;
-            sy->notes = (char *)cs->notes;
-            cs->notes = NULL;
-
-            for (int j = 0; j < cs->nparams; j++)
-                symbol_add_input(sy, cs->params[j].name,
-                                  cs->params[j].desc);
-        }
-    }
+    m->symbols = r->syms;
+    m->symbolCount = (int)r->n;
+    m->symbolCap = (int)r->cap;
+    r->syms = NULL;
+    r->n = r->cap = 0;
 
     module_shrink_to_fit(m);
     cp_result_free(r);

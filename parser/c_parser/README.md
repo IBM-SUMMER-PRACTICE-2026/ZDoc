@@ -60,11 +60,11 @@ current implementation provides:
   state, restore it when the recursion unwinds) or rebuilt afterwards in
   one linear post-pass over `cp_symbols()` — no re-parse needed.
 - **One contiguous array, index-stable.** Symbols live in a single
-  realloc-grown array (`cp_result.syms`); an index assigned at emit time
-  stays valid even as the array grows, where pointers would dangle. Adding
-  two `int32` fields to `cp_symbol` costs 8 bytes/node and zero extra
-  allocations — heap-linked nodes would lose on both memory and traversal
-  locality.
+  realloc-grown array (`cp_result.syms`, now shared `Symbol` records); an
+  index assigned at emit time stays valid even as the array grows, where
+  pointers would dangle. Adding two `int32` fields to `Symbol` costs 8
+  bytes/node and zero extra allocations — heap-linked nodes would lose on
+  both memory and traversal locality.
 - **Source order is preserved.** Sibling order in the array is declaration
   order, so `next_sibling` chains come out already sorted for rendering.
 
@@ -112,9 +112,9 @@ ready for the ZDoc extractor/renderer stages:
 Link `c_parser.c` and include `c_parser.h`:
 
 ```c
-cp_result *r = cp_parse_file("foo.cpp");
+cp_result *r = cp_parser("foo.cpp");
 size_t n;
-const cp_symbol *syms = cp_symbols(r, &n);
+const Symbol *syms = cp_symbols(r, &n);   /* shared parser_shared.h Symbol */
 /* ... */
 cp_result_free(r);
 ```

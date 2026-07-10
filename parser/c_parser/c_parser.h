@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../shared/parser_shared.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,37 +27,14 @@ typedef enum {
     CP_SYM_VARIABLE    /* documented file- or class-scope variable  */
 } cp_symbol_kind;
 
-typedef struct {
-    const char *name;
-    const char *desc;
-} cp_doc_param;
-
-typedef struct {
-    const char    *kind;      /* e.g. "function", "macro"; see cp_symbol_kind_name */
-    const char    *name;
-    const char    *signature; /* whitespace-collapsed, comment-free */
-    uint32_t       line;      /* 1-based line of the declaration    */
-    const char    *brief;     /* NULL when absent */
-    const char    *returns;   /* NULL when absent */
-    const char    *notes;     /* NULL when absent */
-    cp_doc_param  *params;
-    int            nparams;
-    const char    *diagram;   /* NULL for now; no C/C++ diagram support */
-} cp_symbol;
-
 typedef struct cp_result {
-    cp_symbol *syms;
+    Symbol *syms;
     size_t n, cap;
     char *buf;      /* padded scan buffer; freed as soon as parsing ends */
     const char *err;
-    cp_symbol filedoc;
+    Symbol filedoc;
     int has_filedoc;
 } cp_result;
-
-/* The shared cross-parser output type, defined in
- * parser/shared/parser_shared.h. Forward-declared here so this header stays
- * C++-includable without pulling in the shared header's C11 atomics. */
-struct Module;
 
 /* Parse a buffer (copied internally; caller keeps ownership of src). */
 cp_result *cp_parse_buffer(const char *src, size_t len);
@@ -71,10 +50,10 @@ cp_result *cp_parser(const char *path);
 struct Module *cp_parse_file(const char *path);
 
 /* Symbols in source order. Valid until cp_result_free(). */
-const cp_symbol *cp_symbols(const cp_result *r, size_t *count);
+const Symbol *cp_symbols(const cp_result *r, size_t *count);
 
 /* Module-level doc block (a comment carrying @file/@mainpage), if any. */
-int cp_module_doc(const cp_result *r, cp_symbol *out);
+int cp_module_doc(const cp_result *r, Symbol *out);
 
 /* NULL on success, else a message describing the failure. */
 const char *cp_error(const cp_result *r);
