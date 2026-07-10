@@ -29,6 +29,7 @@ typedef struct {
     char *signature;
     InputParam *input;
     int inputCount;
+    int inputCap;
     char *output;
     char *notes;
     uint32_t line;
@@ -67,6 +68,7 @@ void free_input_param_content(InputParam *param);
 /*                 SYMBOL                    */
 /*********************************************/
 void symbol_add_input(Symbol *sym, const char *name, const char *description);
+void symbol_shrink_inputs_to_fit(Symbol *sym);
 void free_symbol_content(Symbol * sym);
 
 

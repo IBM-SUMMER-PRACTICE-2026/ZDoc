@@ -60,11 +60,29 @@ void free_input_param_content(InputParam *param) {
 /*                 SYMBOL                    */
 /*********************************************/
 void symbol_add_input(Symbol *sym, const char *name, const char *description) {
-    sym->input = xrealloc(sym->input,
-                           (size_t)(sym->inputCount + 1) * sizeof(InputParam));
+    if (sym->inputCount == sym->inputCap) {
+        sym->inputCap = sym->inputCap ? sym->inputCap * 2 : 8;
+        sym->input = xrealloc(sym->input,
+                               (size_t)sym->inputCap * sizeof(InputParam));
+    }
     sym->input[sym->inputCount].name = xstrdup(name);
     sym->input[sym->inputCount].description = xstrdup(description);
     sym->inputCount++;
+}
+
+
+void symbol_shrink_inputs_to_fit(Symbol *sym)
+{
+    if (sym->inputCount == sym->inputCap)
+        return;
+    if (sym->inputCount == 0) {
+        free(sym->input);
+        sym->input = NULL;
+    } else {
+        sym->input = xrealloc(sym->input,
+                              (size_t)sym->inputCount * sizeof(InputParam));
+    }
+    sym->inputCap = sym->inputCount;
 }
 
 

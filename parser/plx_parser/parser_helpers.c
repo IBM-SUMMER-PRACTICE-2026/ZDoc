@@ -500,6 +500,7 @@ void build_input_params(const StrList *lines, Symbol *sym,
         if (wname) {
             free(wname);
             build_where_params(lines, i, sym, filename, lineNo);
+            symbol_shrink_inputs_to_fit(sym);
             return;
         }
     }
@@ -528,6 +529,7 @@ void build_input_params(const StrList *lines, Symbol *sym,
         symbol_add_input(sym, name, "");
         free(name);
     }
+    symbol_shrink_inputs_to_fit(sym);
 }
 
 /*
