@@ -12,14 +12,6 @@
 
 #include "../shared/parser_shared.h"
 
-//Duplicate a string with error checking. If malloc fails the program exits with an error message.
-static inline char *xstrndup(const char *s, size_t size) {
-    char *p = xmalloc(size + 1);
-    memcpy(p, s, size);
-    p[size] = '\0';
-    return p;
-}
-
 //Check if a character is a valid Java identifier character.
 static inline int is_ident(char c) {
     return isalnum((unsigned char)c) || c == '$' || c == '_';

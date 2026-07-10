@@ -7,14 +7,6 @@
 
 #include "str_helpers.h"
 
-char *xstrndup(const char *s, size_t n)
-{
-    char *d = xmalloc(n + 1);
-    memcpy(d, s, n);
-    d[n] = '\0';
-    return d;
-}
-
 int str_ieq(const char *a, const char *b)
 {
     while (*a && *b) {
@@ -162,12 +154,4 @@ void sl_free(StrList *l)
         free(l->items[i]);
     free(l->items);
     sl_init(l);
-}
-
-
-// Output
-/* Render a possibly-NULL string as "(null)" so every field prints. */
-const char *or_null(const char *s)
-{
-    return s ? s : "(null)";
 }

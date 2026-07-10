@@ -4,9 +4,6 @@
 #include <stddef.h>
 #include "../shared/parser_shared.h"
 
-/* Allocation wrappers that abort on out-of-memory (defined in parser_shared_interface.c). */
-char *xstrndup(const char *s, size_t n);
-
 /* Case-insensitive string comparison (full / first n chars). */
 int str_ieq(const char *a, const char *b);
 int strn_ieq(const char *a, const char *b, size_t n);
@@ -46,9 +43,5 @@ typedef struct {
 void sl_init(StrList *l);
 void sl_push(StrList *l, char *s);
 void sl_free(StrList *l);
-
-
-// Output
-const char *or_null(const char *s);
 
 #endif
