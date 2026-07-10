@@ -662,8 +662,8 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
 {
     cp_result *r = st->res;
     if (r->n == r->cap) {
-        size_t c = r->cap ? r->cap * 2 : 64;
-        Symbol *ns = (Symbol *)realloc(r->syms, c * sizeof *ns);
+        int c = r->cap ? r->cap * 2 : 64;
+        Symbol *ns = (Symbol *)realloc(r->syms, (size_t)c * sizeof *ns);
         if (!ns)
             return;
         r->syms = ns;
@@ -1163,7 +1163,7 @@ cp_result *cp_parser(const char *path)
 const Symbol *cp_symbols(const cp_result *r, size_t *count)
 {
     if (count)
-        *count = r ? r->n : 0;
+        *count = r ? (size_t)r->n : 0;
     return r ? r->syms : NULL;
 }
 
@@ -1183,7 +1183,7 @@ void cp_result_free(cp_result *r)
 {
     if (!r)
         return;
-    for (size_t i = 0; i < r->n; i++)
+    for (int i = 0; i < r->n; i++)
         free_symbol_content(&r->syms[i]);
     free(r->syms);
     free(r->filename);
@@ -1202,8 +1202,8 @@ static Module *result_to_module(cp_result *r, const char *path)
     Module *m = init_module(path);
 
     m->symbols = r->syms;
-    m->symbolCount = (int)r->n;
-    m->symbolCap = (int)r->cap;
+    m->symbolCount = r->n;
+    m->symbolCap = r->cap;
     r->syms = NULL;
     r->n = r->cap = 0;
 
