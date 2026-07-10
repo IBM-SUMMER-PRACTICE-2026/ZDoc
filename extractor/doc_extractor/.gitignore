@@ -1,7 +1,7 @@
 *.o
 dx_build_test
 out.json
-tests/
+out.l
 
 # Superseded code, quarantined here for now (kept on disk, not tracked, in
 # case any of it gets revisited):
