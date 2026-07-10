@@ -1,2 +1,3 @@
 *.o
 zdoc-c-parser
+c_parser_test
