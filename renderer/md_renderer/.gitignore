@@ -1,0 +1,16 @@
+*.o
+render_test
+zdoc-out-test/
+zdoc-out-demo/
+tests/
+
+# Superseded now that md_render() takes doc_extractor's DxModel directly (no
+# JSON, no subprocess) - kept on disk, not tracked, in case revisited:
+#  - json.c/h: the JSON reader, no longer needed at all.
+#  - md_model.c: the JSON-parsing half of the old MdModel; its path-
+#    reconstruction half is still alive, moved to src/md_path.c.
+#  - main.c: the old CLI driver (./zdoc-md-renderer file.json). md_renderer
+#    is a library now - see tests/render_test.c for how it's exercised.
+#  - sample.json: the old JSON fixture; tests/render_test.c builds the same
+#    content as C structures instead.
+src/_disabled/

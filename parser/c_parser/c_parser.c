@@ -8,9 +8,11 @@
  *     brace-matching loop driven by a 256-entry "interesting char" table
  *   - line numbers are computed lazily (memchr over the gap since the last
  *     query) so the hot loops never count newlines
- *   - all output strings live in a bump arena; one free tears everything down
+ *   - output strings are individually heap-allocated; cp_result_free walks the
+ *     symbols and doc blocks to release them
  */
 #include "c_parser.h"
+#include "../shared/parser_shared.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -18,39 +20,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ------------------------------------------------------------------ arena */
+/* -------------------------------------------------------------- allocation */
 
-typedef struct ablk {
-    struct ablk *next;
-    size_t used, cap;
-} ablk;
-
-typedef struct {
-    ablk *head;
-} arena;
-
-static void *aalloc(arena *A, size_t n)
+/* Copy s[0..n) into a fresh heap buffer, NUL-terminated. Each output string
+ * is individually owned and released in cp_result_free / free_doc. */
+static char *dupn(const char *s, size_t n)
 {
-    n = (n + 15u) & ~(size_t)15u;
-    ablk *b = A->head;
-    if (!b || b->cap - b->used < n) {
-        size_t cap = n > 65536 ? n : 65536;
-        b = (ablk *)malloc(sizeof *b + cap);
-        if (!b)
-            return NULL;
-        b->next = A->head;
-        b->used = 0;
-        b->cap = cap;
-        A->head = b;
-    }
-    void *r = (char *)(b + 1) + b->used;
-    b->used += n;
-    return r;
-}
-
-static char *adup(arena *A, const char *s, size_t n)
-{
-    char *d = (char *)aalloc(A, n + 1);
+    char *d = (char *)malloc(n + 1);
     if (!d)
         return NULL;
     memcpy(d, s, n);
@@ -58,14 +34,17 @@ static char *adup(arena *A, const char *s, size_t n)
     return d;
 }
 
-static void arena_free(arena *A)
+/* Free every heap string a cp_doc owns (all fields tolerate NULL). */
+static void free_doc(cp_doc *d)
 {
-    ablk *b = A->head;
-    while (b) {
-        ablk *n = b->next;
-        free(b);
-        b = n;
+    free((char *)d->brief);
+    free((char *)d->returns);
+    free((char *)d->notes);
+    for (size_t i = 0; i < d->nparams; i++) {
+        free((char *)d->params[i].name);
+        free((char *)d->params[i].desc);
     }
+    free(d->params);
 }
 
 /* -------------------------------------------------------- growable string */
@@ -103,14 +82,20 @@ static void sb_join(sb *s, const char *a, const char *b)
     sb_put(s, a, (size_t)(b - a));
 }
 
-/* Trim trailing whitespace, copy into arena, release the buffer.
- * Returns NULL for empty content. */
-static const char *sb_done(sb *s, arena *A)
+/* Trim trailing whitespace and hand the buffer to the caller (who now owns
+ * it and must free()). Returns NULL for empty content. */
+static const char *sb_done(sb *s)
 {
     while (s->n && isspace((unsigned char)s->d[s->n - 1]))
         s->n--;
-    const char *r = s->n ? adup(A, s->d, s->n) : NULL;
-    free(s->d);
+    const char *r;
+    if (s->n) {
+        s->d[s->n] = 0; /* sb_put always keeps room for the terminator */
+        r = s->d;       /* transfer ownership - no copy */
+    } else {
+        free(s->d);
+        r = NULL;
+    }
     s->d = NULL;
     s->n = s->cap = 0;
     return r;
@@ -119,10 +104,9 @@ static const char *sb_done(sb *s, arena *A)
 /* ----------------------------------------------------------------- result */
 
 struct cp_result {
-    arena A;
     cp_symbol *syms;
     size_t n, cap;
-    char *buf;      /* padded private copy of the source */
+    char *buf;      /* padded scan buffer; freed as soon as parsing ends */
     const char *err;
     cp_doc filedoc;
     int has_filedoc;
@@ -507,7 +491,6 @@ typedef struct {
  * on the result instead. */
 static int parse_doc_text(P *st, docref d, cp_doc *out)
 {
-    arena *A = &st->res->A;
     const char *s = d.s, *e = d.e;
     if (!d.is_line) {
         s += 3; /* past the opener incl. the doc marker char */
@@ -576,8 +559,13 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
                 while (r < b && !isspace((unsigned char)*r))
                     r++;
                 if (np == cp_) {
-                    cp_ = cp_ ? cp_ * 2 : 8;
-                    dp = (draft_param *)realloc(dp, cp_ * sizeof *dp);
+                    size_t ncp = cp_ ? cp_ * 2 : 8;
+                    draft_param *ndp =
+                        (draft_param *)realloc(dp, ncp * sizeof *dp);
+                    if (!ndp)
+                        continue; /* OOM: drop this @param, keep the rest */
+                    dp = ndp;
+                    cp_ = ncp;
                 }
                 memset(&dp[np], 0, sizeof dp[np]);
                 sb_put(&dp[np].name, nsrt, (size_t)(r - nsrt));
@@ -621,16 +609,24 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
     }
 
     cp_doc doc = {0};
-    doc.brief = sb_done(&brief, A);
-    doc.returns = sb_done(&rets, A);
-    doc.notes = sb_done(&notes, A);
+    doc.brief = sb_done(&brief);
+    doc.returns = sb_done(&rets);
+    doc.notes = sb_done(&notes);
     if (np) {
-        doc.params = (cp_doc_param *)aalloc(A, np * sizeof *doc.params);
-        for (size_t i = 0; i < np; i++) {
-            doc.params[i].name = sb_done(&dp[i].name, A);
-            doc.params[i].desc = sb_done(&dp[i].desc, A);
+        doc.params = (cp_doc_param *)malloc(np * sizeof *doc.params);
+        if (doc.params) {
+            for (size_t i = 0; i < np; i++) {
+                doc.params[i].name = sb_done(&dp[i].name);
+                doc.params[i].desc = sb_done(&dp[i].desc);
+            }
+            doc.nparams = np;
+        } else {
+            /* OOM: drain the draft buffers so they don't leak */
+            for (size_t i = 0; i < np; i++) {
+                free((char *)sb_done(&dp[i].name));
+                free((char *)sb_done(&dp[i].desc));
+            }
         }
-        doc.nparams = np;
     }
     free(dp);
 
@@ -638,6 +634,9 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
         if (!st->res->has_filedoc) {
             st->res->filedoc = doc;
             st->res->has_filedoc = 1;
+        } else {
+            /* only the first @file/@mainpage is kept; free the rest */
+            free_doc(&doc);
         }
         memset(out, 0, sizeof *out);
         return 0;
@@ -648,12 +647,13 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
 
 /* ------------------------------------------------------------- emission */
 
-/* Copy [a,b) collapsing whitespace runs and stripping comments. */
-static const char *make_sig(P *st, const char *a, const char *b)
+/* Copy [a,b) collapsing whitespace runs and stripping comments. Returns an
+ * owned heap string, or NULL on allocation failure. */
+static char *make_sig(const char *a, const char *b)
 {
-    char *out = (char *)aalloc(&st->res->A, (size_t)(b - a) + 1);
+    char *out = (char *)malloc((size_t)(b - a) + 1);
     if (!out)
-        return "";
+        return NULL;
     size_t o = 0;
     int ws = 0;
     const char *p = a;
@@ -709,8 +709,8 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
     memset(sym, 0, sizeof *sym);
     sym->kind = k;
     sym->line = line;
-    sym->name = adup(&r->A, nm.s, (size_t)(nm.e - nm.s));
-    sym->signature = make_sig(st, ss, se);
+    sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
+    sym->signature = make_sig(ss, se);
     if (doc->valid) {
         sym->has_doc = parse_doc_text(st, *doc, &sym->doc);
         doc->valid = 0;
@@ -1110,6 +1110,28 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
+/* Scan r->buf[0..len) (which must already carry the 16-byte NUL padding) and
+ * release the buffer as soon as the pass finishes: every output string is an
+ * owned heap copy, so nothing references r->buf once parsing returns. This is
+ * what keeps a parsed result from pinning a whole file-sized allocation. */
+static void run_scan(cp_result *r, size_t len)
+{
+    P st = {0};
+    st.begin = r->buf;
+    st.end = r->buf + len;
+    st.p = r->buf;
+    if (len >= 3 && (unsigned char)r->buf[0] == 0xEF &&
+        (unsigned char)r->buf[1] == 0xBB && (unsigned char)r->buf[2] == 0xBF)
+        st.p += 3; /* UTF-8 BOM */
+    st.anchor = st.p;
+    st.anchor_line = 1;
+    st.res = r;
+    parse_decl_scope(&st, 0);
+
+    free(r->buf);
+    r->buf = NULL;
+}
+
 cp_result *cp_parse_buffer(const char *src, size_t len)
 {
     cp_result *r = (cp_result *)calloc(1, sizeof *r);
@@ -1122,22 +1144,11 @@ cp_result *cp_parse_buffer(const char *src, size_t len)
     }
     memcpy(r->buf, src, len);
     memset(r->buf + len, 0, 16); /* NUL padding: lookahead never overruns */
-
-    P st = {0};
-    st.begin = r->buf;
-    st.end = r->buf + len;
-    st.p = r->buf;
-    if (len >= 3 && (unsigned char)r->buf[0] == 0xEF &&
-        (unsigned char)r->buf[1] == 0xBB && (unsigned char)r->buf[2] == 0xBF)
-        st.p += 3; /* UTF-8 BOM */
-    st.anchor = st.p;
-    st.anchor_line = 1;
-    st.res = r;
-    parse_decl_scope(&st, 0);
+    run_scan(r, len);
     return r;
 }
 
-cp_result *cp_parse_file(const char *path)
+cp_result *cp_parser(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -1156,18 +1167,23 @@ cp_result *cp_parse_file(const char *path)
         return r;
     }
     fseek(f, 0, SEEK_SET);
-    char *buf = (char *)malloc((size_t)sz + 1);
-    if (!buf) {
+
+    cp_result *r = (cp_result *)calloc(1, sizeof *r);
+    if (!r) {
         fclose(f);
-        cp_result *r = (cp_result *)calloc(1, sizeof *r);
-        if (r)
-            r->err = "out of memory";
+        return NULL;
+    }
+    /* Read straight into the padded scan buffer - no intermediate copy. */
+    r->buf = (char *)malloc((size_t)sz + 16);
+    if (!r->buf) {
+        fclose(f);
+        r->err = "out of memory";
         return r;
     }
-    size_t rd = fread(buf, 1, (size_t)sz, f);
+    size_t rd = fread(r->buf, 1, (size_t)sz, f);
     fclose(f);
-    cp_result *r = cp_parse_buffer(buf, rd);
-    free(buf);
+    memset(r->buf + rd, 0, 16); /* NUL padding from the actual bytes read */
+    run_scan(r, rd);
     return r;
 }
 
@@ -1208,8 +1224,136 @@ void cp_result_free(cp_result *r)
 {
     if (!r)
         return;
+    for (size_t i = 0; i < r->n; i++) {
+        cp_symbol *s = &r->syms[i];
+        free((char *)s->name);
+        free((char *)s->signature);
+        free_doc(&s->doc);
+    }
+    if (r->has_filedoc)
+        free_doc(&r->filedoc);
     free(r->syms);
     free(r->buf);
-    arena_free(&r->A);
     free(r);
+}
+
+/* ------------------------------------------------ shared Module adapter */
+
+/* Duplicate a C string with dupn (reuses the module's owned-string helper). */
+static char *dupcstr(const char *s)
+{
+    return s ? dupn(s, strlen(s)) : NULL;
+}
+
+/* Move every owned string out of a parsed cp_result into a shared Module.
+ * Strings are transferred (not copied); the cp_symbol fields are cleared so
+ * cp_result_free then tears down only the leftovers (the emptied doc blocks,
+ * the file-level doc we drop, the symbol array and the result itself).
+ *
+ * Field mapping: kind -> type (as a string), doc.brief -> description,
+ * doc.returns -> output, doc.notes -> notes, doc.params -> input. The
+ * C-only module doc and has_doc flag have no shared home and are dropped. */
+static Module *result_to_module(cp_result *r, const char *path)
+{
+    Module *m = (Module *)calloc(1, sizeof *m);
+    if (!m) {
+        cp_result_free(r);
+        return NULL;
+    }
+    m->filename = dupcstr(path);
+
+    if (r->n) {
+        m->symbols = (Symbol *)malloc(r->n * sizeof *m->symbols);
+        if (!m->symbols) {
+            /* OOM: hand back an empty module, let cp_result_free reclaim all */
+            cp_result_free(r);
+            return m;
+        }
+        m->symbolCount = (int)r->n;
+        m->symbolCap = (int)r->n;
+
+        for (size_t i = 0; i < r->n; i++) {
+            cp_symbol *cs = &r->syms[i];
+            Symbol *sy = &m->symbols[i];
+            memset(sy, 0, sizeof *sy);
+
+            sy->name = (char *)cs->name;
+            cs->name = NULL;
+            sy->signature = (char *)cs->signature;
+            cs->signature = NULL;
+            sy->line = cs->line;
+            sy->type = dupcstr(cp_symbol_kind_name(cs->kind));
+            sy->diagram = NULL;
+
+            sy->description = (char *)cs->doc.brief;
+            cs->doc.brief = NULL;
+            sy->output = (char *)cs->doc.returns;
+            cs->doc.returns = NULL;
+            sy->notes = (char *)cs->doc.notes;
+            cs->doc.notes = NULL;
+
+            if (cs->doc.nparams) {
+                sy->input =
+                    (InputParam *)malloc(cs->doc.nparams * sizeof *sy->input);
+                if (sy->input) {
+                    sy->inputCount = (int)cs->doc.nparams;
+                    for (size_t j = 0; j < cs->doc.nparams; j++) {
+                        sy->input[j].name = (char *)cs->doc.params[j].name;
+                        sy->input[j].description =
+                            (char *)cs->doc.params[j].desc;
+                    }
+                    /* strings moved; drop the shell so cp_result_free skips */
+                    free(cs->doc.params);
+                    cs->doc.params = NULL;
+                    cs->doc.nparams = 0;
+                }
+                /* on OOM leave doc.params intact for cp_result_free to reclaim */
+            }
+        }
+    }
+
+    cp_result_free(r);
+    return m;
+}
+
+Module *cp_parse_file(const char *path)
+{
+    cp_result *r = cp_parser(path);
+    if (!r)
+        return NULL; /* allocation failure */
+
+    if (cp_error(r)) {
+        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, cp_error(r));
+        cp_result_free(r);
+        Module *m = (Module *)calloc(1, sizeof *m);
+        if (m)
+            m->filename = dupcstr(path);
+        return m; /* empty module */
+    }
+
+    return result_to_module(r, path);
+}
+
+void cp_free_module(Module *m)
+{
+    if (!m)
+        return;
+    for (int i = 0; i < m->symbolCount; i++) {
+        Symbol *s = &m->symbols[i];
+        free(s->name);
+        free(s->signature);
+        free(s->description);
+        free(s->output);
+        free(s->notes);
+        free(s->type);
+        free(s->diagram);
+        for (int j = 0; j < s->inputCount; j++) {
+            free(s->input[j].name);
+            free(s->input[j].description);
+        }
+        free(s->input);
+    }
+    free(m->symbols);
+    free(m->filename);
+    free(m);
 }
