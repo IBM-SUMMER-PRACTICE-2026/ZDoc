@@ -9,11 +9,6 @@ out/
 out2/
 example-output/
 
-# Test sources + fixtures - matches the same convention already used in
-# extractor/doc_extractor and renderer/md_renderer (tests stay local, not
-# tracked).
-tests/
-
 # Superseded now that html_render() takes doc_extractor's DxModel directly
 # (no JSON, no subprocess) - kept on disk, not tracked, in case revisited:
 #  - json.c/h: the JSON reader, no longer needed at all.

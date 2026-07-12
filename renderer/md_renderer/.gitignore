@@ -2,7 +2,7 @@
 render_test
 zdoc-out-test/
 zdoc-out-demo/
-tests/
+
 
 # Superseded now that md_render() takes doc_extractor's DxModel directly (no
 # JSON, no subprocess) - kept on disk, not tracked, in case revisited:
