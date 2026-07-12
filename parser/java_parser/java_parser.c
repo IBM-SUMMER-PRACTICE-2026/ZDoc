@@ -26,7 +26,8 @@ static char *read_file(const char *path, size_t *out_len, const char **err) {
     }
     rewind(f);
 
-    char *buf = malloc((size_t)size ? (size_t)size : 1);
+    // Over-allocate by 16 bytes so the scanner can read past the end safely.
+    char *buf = malloc((size_t)size + 16);
     if(!buf) {
         fclose(f);
         *err = "out of memory";
@@ -35,6 +36,7 @@ static char *read_file(const char *path, size_t *out_len, const char **err) {
 
     size_t n = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    memset(buf + n, 0, 16);  // NUL padding from the actual bytes read
     *out_len = n;
     return buf;
 }
