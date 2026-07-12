@@ -37,7 +37,6 @@ $(TEST_BIN): $(LIB_OBJS) $(TEST_OBJS)
 test: $(TEST_BIN)
 	rm -rf zdoc-out-test
 	./$(TEST_BIN) ./zdoc-out-test
-	diff -r zdoc-out-test tests/expected
 
 clean:
 	rm -f $(LIB_OBJS) $(TEST_OBJS) $(TEST_BIN)

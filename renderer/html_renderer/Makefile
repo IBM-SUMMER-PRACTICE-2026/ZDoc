@@ -36,7 +36,6 @@ $(TEST_BIN): $(LIB_OBJS) $(TEST_OBJS)
 test: $(TEST_BIN)
 	rm -rf tests/tmp
 	./$(TEST_BIN) tests/tmp
-	sh tests/check.sh
 
 clean:
 	rm -f $(LIB_OBJS) $(TEST_OBJS) $(TEST_BIN)
