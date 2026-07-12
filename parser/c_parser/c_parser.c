@@ -13,6 +13,7 @@
  */
 #include "c_parser.h"
 #include "../shared/parser_shared.h"
+#include "../shared/file_buffer.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1062,10 +1063,10 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
-/* Scan buf[0..len) (which must already carry the 16-byte NUL padding) into m,
- * releasing the buffer as soon as the pass finishes: every output string is an
- * owned heap copy, so nothing references buf once parsing returns. This is
- * what keeps a parsed module from pinning a whole file-sized allocation. */
+/* Scan buf[0..len) (which must already carry the 16-byte NUL padding) into m.
+ * Every output string is an owned heap copy, so nothing references buf once the
+ * pass returns and the caller can release it immediately. This is what keeps a
+ * parsed module from pinning a whole file-sized allocation. */
 static void run_scan(Module *m, char *buf, size_t len)
 {
     P st = {0};
@@ -1081,38 +1082,17 @@ static void run_scan(Module *m, char *buf, size_t len)
     parse_decl_scope(&st, 0);
 
     module_shrink_to_fit(m);
-    free(buf);
 }
 
 Module *cp_parser(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, strerror(errno));
+    FileBuffer fb = read_file_buffer(path);
+    if (!fb.data)
         return NULL;
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    if (sz < 0) {
-        fclose(f);
-        fprintf(stderr, "zdoc-c-parser: %s: unseekable file\n", path);
-        return NULL;
-    }
-    fseek(f, 0, SEEK_SET);
-
-    /* Read straight into the padded scan buffer - no intermediate copy. */
-    char *buf = (char *)malloc((size_t)sz + 16);
-    if (!buf) {
-        fclose(f);
-        fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
-        return NULL;
-    }
-    size_t rd = fread(buf, 1, (size_t)sz, f);
-    fclose(f);
-    memset(buf + rd, 0, 16); /* NUL padding from the actual bytes read */
 
     Module *m = init_module(path);
-    run_scan(m, buf, rd);
+    run_scan(m, fb.data, fb.len);
+    free_file_buffer(&fb);
     return m;
 }
 

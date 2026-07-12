@@ -6,40 +6,7 @@
 #include "java_parser.h"
 #include "util.h"
 #include "doc_comment.h"
-
-// Read a whole file into memory. Returns NULL (and sets *err) on failure so the
-// caller can still emit a valid, empty module and move on to the next file.
-static char *read_file(const char *path, size_t *out_len, const char **err) {
-    *err = NULL;
-    FILE *f = fopen(path, "rb");
-    if(!f) {
-        *err = "could not open file";
-        return NULL;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    if(size < 0) {
-        fclose(f);
-        *err = "could not determine file size";
-        return NULL;
-    }
-    rewind(f);
-
-    // Over-allocate by 16 bytes so the scanner can read past the end safely.
-    char *buf = malloc((size_t)size + 16);
-    if(!buf) {
-        fclose(f);
-        *err = "out of memory";
-        return NULL;
-    }
-
-    size_t n = fread(buf, 1, (size_t)size, f);
-    fclose(f);
-    memset(buf + n, 0, 16);  // NUL padding from the actual bytes read
-    *out_len = n;
-    return buf;
-}
+#include "../shared/file_buffer.h"
 
 // Skip any annotations (e.g. @Override, @SuppressWarnings("unchecked"), stacked or with
 // nested-paren arguments) between a doc comment and the declaration it documents.
@@ -178,15 +145,14 @@ static char *extract_name(const char *sig) {
 Module *java_parse(const char *path) {
     Module *m = init_module(path);
 
-    size_t len;
-    const char *err;
-    char *src = read_file(path, &len, &err);
-    if(!src) {
-        // Report the failure but still return a valid, empty module so the
-        // caller can carry on (mirrors cp_parse_file's behaviour).
-        fprintf(stderr, "zdoc-java-parser: %s: %s\n", path, err);
+    FileBuffer fb = read_file_buffer(path);
+    if(!fb.data) {
+        // read_file_buffer already reported the failure; still return a valid,
+        // empty module so the caller can carry on (mirrors cp_parser's behaviour).
         return m;
     }
+    const char *src = fb.data;
+    size_t len = fb.len;
 
     size_t line_anchor_pos = 0;
     uint32_t line_anchor_line = 1;
@@ -243,6 +209,6 @@ Module *java_parse(const char *path) {
         i = after_ws > i ? after_ws : i + 1;
     }
 
-    free(src);
+    free_file_buffer(&fb);
     return m;
 }
