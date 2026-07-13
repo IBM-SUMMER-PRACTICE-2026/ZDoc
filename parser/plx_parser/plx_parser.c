@@ -21,21 +21,22 @@
 /* ------------------------------------------------------------------ */
 
 /* fgets-style line reader over an in-memory FileBuffer. Frees the previous
- * *line, then allocates and returns the next line - up to and including its
- * '\n', like fgets - as a NUL-terminated string, advancing *pos. A trailing
- * "\r\n" is normalised to "\n" to mirror text-mode fopen. Returns *line, or
- * NULL once the buffer is consumed (with *line reset to NULL).
+ * line->data, then fills *line with the next line - up to and including its
+ * '\n', like fgets - as a NUL-terminated copy plus its length, advancing *pos.
+ * A trailing "\r\n" is normalised to "\n" to mirror text-mode fopen. Returns
+ * *line for convenience; line->data is NULL once the buffer is consumed.
  *
  * NOTE: allocates a fresh buffer per line and frees the prior one - deliberately
  * simple and wasteful for now, an intermediate step toward slice-based parsing
  * that reads straight from the FileBuffer with no copy. */
-static char *buf_getline(const FileBuffer *buf, size_t *pos, char **line)
+static Line buf_getline(const FileBuffer *buf, size_t *pos, Line *line)
 {
-    free(*line);
-    *line = NULL;
+    free(line->data);
+    line->data = NULL;
+    line->len = 0;
 
     if (*pos >= buf->len)
-        return NULL;
+        return *line;
 
     /* Extent of this line: up to and including the next '\n' (or end of buffer). */
     size_t start = *pos, i = start;
@@ -54,8 +55,9 @@ static char *buf_getline(const FileBuffer *buf, size_t *pos, char **line)
     out[o] = '\0';
 
     *pos = end;
-    *line = out;
-    return out;
+    line->data = out;
+    line->len = o;
+    return *line;
 }
 
 Module *plx_parse_file(const char *path)
@@ -66,7 +68,7 @@ Module *plx_parse_file(const char *path)
 
     Module *mod = init_module(path);
     DocBlock blk;
-    char *line = NULL;
+    Line line = { NULL, 0 };
     size_t pos = 0;
     int lineNo = 0;
 
@@ -81,14 +83,14 @@ Module *plx_parse_file(const char *path)
     sb_init(&sig);
 
     // Iterate line by line
-    while (buf_getline(&buf, &pos, &line)) {
+    while (buf_getline(&buf, &pos, &line).data) {
         char *content;
         char *procName;
 
         lineNo++;
 
         if (capturing) {
-            if (sig_consume(&sig, line, &sigState)) {
+            if (sig_consume(&sig, line.data, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);
@@ -107,12 +109,12 @@ Module *plx_parse_file(const char *path)
 
         // Inside a Method Prolog block (.plxmac)
         if (inProlog) {
-            if (is_prolog_end(line)) {
+            if (is_prolog_end(line.data)) {
                 if (blk.active)
                     blk.closed = 1; /* block done; wait for the ProcEntry */
                 inProlog = 0;
             } else {
-                content = prolog_content(line);
+                content = prolog_content(line.data);
                 if (*content != '\0') /* padding-only lines are skipped */
                     feed_doc_line(&blk, mod, content, lineNo);
                 free(content);
@@ -120,7 +122,7 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        if (is_prolog_start(line)) {
+        if (is_prolog_start(line.data)) {
             if (blk.closed) {
                 /* new block starts while one is pending: flush it */
                 block_to_symbol(&blk, mod, NULL, NULL, lineNo);
@@ -130,7 +132,7 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        content = comment_content(line);
+        content = comment_content(line.data);
         if (content) {
             // Padding only
             if (*content == '\0') {
@@ -149,9 +151,9 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        procName = match_proc_start(line);
+        procName = match_proc_start(line.data);
         if (!procName)
-            procName = match_procentry(line);
+            procName = match_procentry(line.data);
         if (procName) {
             capturing = 1;
             sigState.depth = 0;
@@ -159,7 +161,7 @@ Module *plx_parse_file(const char *path)
             sigState.inString = 0;
             sigProc = procName;
             procLine = lineNo;
-            if (sig_consume(&sig, line, &sigState)) {
+            if (sig_consume(&sig, line.data, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);
@@ -183,7 +185,7 @@ Module *plx_parse_file(const char *path)
         free(sigProc);
         sb_free(&sig);
     }
-    free(line); /* buf_getline nulls it at EOF; defensive for any early exit */
+    free(line.data); /* buf_getline nulls it at EOF; defensive for any early exit */
     module_shrink_to_fit(mod);
 
     free_file_buffer(&buf);
