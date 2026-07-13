@@ -12,6 +12,7 @@ extern modtree_dir_table_t global_dir_table;
 extern modtree_file_table_t global_file_table;
 extern int files_count;
 extern struct Module* global_parsed_files_arry;
+extern char** paths_look_up;
 
 
 // Function input parameter
@@ -42,6 +43,7 @@ typedef struct Module {
     Symbol *symbols;
     int symbolCount;
     int symbolCap;
+    int pathIndex;
 } Module;
 
 /* Function that initializes the files count,

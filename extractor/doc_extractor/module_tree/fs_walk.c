@@ -1,10 +1,13 @@
 #include "fs_walk.h"
+#include "path_interface.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 #define FS_WALK_PATH_BUF 4096
+
+char fs_walk_root_prefix[FS_WALK_PATH_MAX] = {0};
 
 #ifdef _WIN32
 #define FS_WALK_SEP "\\"
@@ -192,7 +195,16 @@ int fs_walk(const char* root_disk_path,
             modtree_file_table_t* files,
             const char** extensions,
             size_t extension_count) {
-    const char* root_name = last_path_component(root_disk_path);
+    char abs_root[FS_WALK_PATH_MAX];
+    if (resolve_absolute_path(root_disk_path, abs_root, sizeof(abs_root)) != 0) return -1;
+
+    const char* root_name = last_path_component(abs_root);
+
+    snprintf(fs_walk_root_prefix, sizeof(fs_walk_root_prefix), "%s", abs_root);
+    char* fsep = strrchr(fs_walk_root_prefix, '/');
+    char* bsep = strrchr(fs_walk_root_prefix, '\\');
+    char* sep = fsep > bsep ? fsep : bsep;
+    if (sep && sep != fs_walk_root_prefix) *sep = '\0';
 
     int root_index = modtree_intern_dir(dirs, root_name, -1);
     if (root_index < 0) return -1;

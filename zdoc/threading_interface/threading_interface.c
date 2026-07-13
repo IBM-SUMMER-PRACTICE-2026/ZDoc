@@ -8,7 +8,7 @@ static DWORD WINAPI thread_start(LPVOID arg) {
     return 0;
 }
 
-thread_handle_t create_thread(void (*thread_func)(void)) {
+type_thread create_thread(void (*thread_func)(void)) {
     HANDLE thread = CreateThread(
         NULL,
         0,
@@ -21,12 +21,21 @@ thread_handle_t create_thread(void (*thread_func)(void)) {
     return thread;
 }
 
+void wait_for_thread(type_thread* working_thread) {
+    WaitForSingleObject(*working_thread, INFINITE);
+    CloseHandle(*working_thread);
+}
+
 #else
 
 type_thread create_thread(void (*thread_func)(void)) {
     pthread_t thread;
-    pthread_create(&thread, NULL, &thread_func, NULL);
+    pthread_create(&thread, NULL, (void *(*)(void *))thread_func, NULL);
     return thread;
+}
+
+void wait_for_thread(type_thread* working_thread) {
+    pthread_join(*working_thread, NULL);
 }
 
 #endif
