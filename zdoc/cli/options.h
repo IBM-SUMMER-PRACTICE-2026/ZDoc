@@ -39,7 +39,7 @@ typedef struct {
     char      bob_args[ZD_ARGS_MAX];
     char      **languages;
     size_t    n_languages;
-    char      excludes[ZD_MAX_EXCLUDES][ZD_GLOB_MAX];
+    char      **excludes;
     size_t    n_excludes;
     uint8_t   recursive;
     uint8_t   no_source;

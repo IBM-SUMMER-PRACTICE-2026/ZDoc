@@ -16,6 +16,10 @@ void zd_options_init(zd_options *o) {
     o->languages = malloc(ZD_MAX_LANGS * sizeof *o->languages);
     for(i = 0; i < ZD_MAX_LANGS; i++)
         o->languages[i] = malloc(ZD_LANG_MAX);
+
+    o->excludes = malloc(ZD_MAX_EXCLUDES * sizeof *o->excludes);
+    for(i = 0; i < ZD_MAX_EXCLUDES; i++)
+        o->excludes[i] = malloc(ZD_GLOB_MAX);
 }
 
 const char *zd_mode_name(zd_mode m) {

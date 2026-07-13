@@ -87,7 +87,7 @@ void zd_request_write(const zd_options *o, FILE *out) {
     fputs(",\n", out);
 
     fputs("  \"exclude\": ", out);
-    zd_json_array(out, &o->excludes[0][0], ZD_GLOB_MAX, o->n_excludes);
+    zd_json_ptr_array(out, o->excludes, o->n_excludes);
     fputs(",\n", out);
 
     fputs("  \"bob_cli\": ", out);

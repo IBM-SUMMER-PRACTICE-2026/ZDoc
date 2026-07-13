@@ -143,9 +143,46 @@ static int matches_extension(const char* name, const char** extensions, size_t e
     return 0;
 }
 
+/* Simple shell-style wildcard match: '*' matches any run of characters
+ * (including none, including path separators), '?' matches exactly one
+ * character. Not a full gitignore-style segment-aware "**" glob, but
+ * covers the common exclude patterns (e.g. "*.test.c" or a bare directory
+ * name like "test"). */
+static int wild_match(const char* pat, const char* str) {
+    const char* star_pat = NULL;
+    const char* star_str = NULL;
+
+    while (*str) {
+        if (*pat == '*') {
+            star_str = str;
+        } else if (*pat == '?' || *pat == *str) {
+            pat++;
+            str++;
+        } else if (star_pat) {
+            pat = star_pat;
+            str = ++star_str;
+        } else {
+            return 0;
+        }
+    }
+    while (*pat == '*') pat++;
+    return *pat == '\0';
+}
+
+/* An entry is excluded if any pattern matches either its bare name or its
+ * accumulated disk path from the walk root. */
+static int is_excluded(const char* name, const char* disk_path,
+                        const char** excludes, size_t exclude_count) {
+    for (size_t i = 0; i < exclude_count; i++) {
+        if (wild_match(excludes[i], name) || wild_match(excludes[i], disk_path)) return 1;
+    }
+    return 0;
+}
+
 static int walk_dir(const char* disk_path, int current_dir_index,
                      modtree_dir_table_t* dirs, modtree_file_table_t* files,
-                     const char** extensions, size_t extension_count) {
+                     const char** extensions, size_t extension_count,
+                     const char** excludes, size_t exclude_count, int recursive) {
     fs_dir_t dir;
     if (fs_dir_open(disk_path, &dir) != 0) return -1;
 
@@ -158,11 +195,16 @@ static int walk_dir(const char* disk_path, int current_dir_index,
         int n = snprintf(child_disk_path, sizeof(child_disk_path), "%s" FS_WALK_SEP "%s", disk_path, name);
         if (n < 0 || (size_t)n >= sizeof(child_disk_path)) { fs_dir_close(&dir); return -1; }
 
+        if (is_excluded(name, child_disk_path, excludes, exclude_count)) continue;
+
         if (is_directory) {
+            if (!recursive) continue; /* not interned, not descended into */
+
             int new_index = modtree_intern_dir(dirs, name, current_dir_index);
             if (new_index < 0) { fs_dir_close(&dir); return -1; }
 
-            if (walk_dir(child_disk_path, new_index, dirs, files, extensions, extension_count) != 0) {
+            if (walk_dir(child_disk_path, new_index, dirs, files, extensions, extension_count,
+                         excludes, exclude_count, recursive) != 0) {
                 fs_dir_close(&dir);
                 return -1;
             }
@@ -194,7 +236,10 @@ int fs_walk(const char* root_disk_path,
             modtree_dir_table_t* dirs,
             modtree_file_table_t* files,
             const char** extensions,
-            size_t extension_count) {
+            size_t extension_count,
+            const char** excludes,
+            size_t exclude_count,
+            int recursive) {
     char abs_root[FS_WALK_PATH_MAX];
     if (resolve_absolute_path(root_disk_path, abs_root, sizeof(abs_root)) != 0) return -1;
 
@@ -212,8 +257,10 @@ int fs_walk(const char* root_disk_path,
 #ifdef _WIN32
     char prefixed_root[FS_WALK_PATH_BUF];
     if (win32_root_prefixed(root_disk_path, prefixed_root, sizeof(prefixed_root)) != 0) return -1;
-    return walk_dir(prefixed_root, root_index, dirs, files, extensions, extension_count);
+    return walk_dir(prefixed_root, root_index, dirs, files, extensions, extension_count,
+                     excludes, exclude_count, recursive);
 #else
-    return walk_dir(root_disk_path, root_index, dirs, files, extensions, extension_count);
+    return walk_dir(root_disk_path, root_index, dirs, files, extensions, extension_count,
+                     excludes, exclude_count, recursive);
 #endif
 }
