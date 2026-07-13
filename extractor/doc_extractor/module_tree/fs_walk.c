@@ -154,6 +154,7 @@ static int wild_match(const char* pat, const char* str) {
 
     while (*str) {
         if (*pat == '*') {
+            star_pat = ++pat;
             star_str = str;
         } else if (*pat == '?' || *pat == *str) {
             pat++;
