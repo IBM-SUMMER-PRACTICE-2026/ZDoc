@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #ifndef NUM_THREADS
-#define NUM_THREADS 4
+#define NUM_THREADS 12
 #endif
 
 static double now_seconds(void) {
@@ -70,7 +70,7 @@ void zdoc_daemon_start_job(zd_options* options) {
     modtree_file_table_init(&global_file_table);
 
     int rc = fs_walk(options->inputs[0], &global_dir_table, &global_file_table,
-                      (const char**)options->languages, (size_t)options->n_languages);
+                      (const char**)options->languages, options->n_languages);
     if (rc != 0) {
         fprintf(stderr, "fs_walk failed on '%s'\n", options->inputs[0]);
         modtree_dir_table_free(&global_dir_table);
