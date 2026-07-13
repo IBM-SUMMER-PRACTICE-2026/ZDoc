@@ -1,11 +1,12 @@
 /*
   Walks the module_tree tables and a parsed Module array directly and
-  writes the result out as a single self-contained index.html: nested
-  <details>/<summary> nodes for directories and files, with per-symbol
-  documentation sections (signature, brief, parameters, returns, notes,
-  block diagram). No JSON, no parsing, no intermediate model - matching a
-  file to its parsed module and deriving its language happens right here
-  instead of in a separate doc_extractor stage.
+  writes the result out as one HTML page per module (mirroring the source
+  directory structure, like md_renderer) plus a root index.html linking to
+  all of them - each page has per-symbol documentation sections (signature,
+  brief, parameters, returns, notes, block diagram). No JSON, no parsing, no
+  intermediate model - matching a file to its parsed module and deriving
+  its language happens right here instead of in a separate doc_extractor
+  stage.
  */
 #include "html_renderer.h"
 
@@ -82,6 +83,29 @@ static const Module **build_module_index(const Module *modules, size_t module_co
             by_file[pi] = &modules[i];
     }
     return by_file;
+}
+
+/* Strips the extension off the filename component of an in-place path
+ * (i.e. after the last '/', not any '.' that happens to be in a directory
+ * name earlier in the path). */
+static void strip_last_ext(char *path) {
+    char *slash = strrchr(path, '/');
+    char *base = slash ? slash + 1 : path;
+    char *dot = strrchr(base, '.');
+    if(dot) *dot = '\0';
+}
+
+/* Where a given file's rendered page lives, relative to out_dir - the
+ * source path with its extension swapped for .html. Used both as the
+ * actual write location and as index.html's link target, so the two can
+ * never disagree with each other. */
+static int html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                                size_t file_index, char *out, size_t out_size) {
+    char src_path[900];
+    if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != 0) return -1;
+    strip_last_ext(src_path);
+    int n = snprintf(out, out_size, "%s.html", src_path);
+    return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
 }
 
 /* Best effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -246,39 +270,29 @@ static void render_symbol(FILE *o, const Symbol *s, const char *language) {
     }
     fputs("</details>\n", o);
 }
-//Renders a file and its symbols. The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.
-static void render_file(FILE *o, const modtree_file_table_t *files,
-                         const Module **by_file, size_t f) {
-    const modtree_file_t *file = &files->files[f];
-    const char *language = file->name ? language_for_name(file->name) : NULL;
-    const Module *mod = by_file[f];
-
-    fputs("<li><details class=\"file\"><summary>", o);
-    put_escaped(o, file->name ? file->name : "(unnamed)");
-    fputs("</summary>\n", o);
-
-    if(!mod)
-        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted.</p>\n", o);
-    else if(mod->symbolCount == 0)
-        fputs("<p class=\"empty\">No documented symbols.</p>\n", o);
-    if(mod)
-        for(int k = 0; k < mod->symbolCount; k++) render_symbol(o, &mod->symbols[k], language);
-    fputs("</details></li>\n", o);
-}
-/*Renders a directory and its children recursively. The caller is responsible for
- wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
-static void render_dir(FILE *o, const adjacency_t *a, const modtree_dir_table_t *dirs,
-                        const modtree_file_table_t *files, const Module **by_file, int d) {
-    fputs("<li><details class=\"dir\" open><summary>", o);
-    put_escaped(o, dirs->dirs[d].name ? dirs->dirs[d].name : "(unnamed)");
-    fputs("/</summary><ul>\n", o);
+/*Renders the tree page as a nested, linked bullet list - directories in
+ bold, files linking to their own rendered page. Mirrors md_renderer's
+ print_tree, walked here via the adjacency table instead of a rescan per
+ node.*/
+static void render_index_tree(FILE *idx, const adjacency_t *a, const modtree_dir_table_t *dirs,
+                               const modtree_file_table_t *files, int d) {
+    fputs("<li><details class=\"dir\" open><summary>", idx);
+    put_escaped(idx, dirs->dirs[d].name ? dirs->dirs[d].name : "(unnamed)");
+    fputs("/</summary><ul>\n", idx);
 
     for(int c = a->dir_child[d]; c != -1; c = a->dir_sib[c])
-        render_dir(o, a, dirs, files, by_file, c);
-    for(int f = a->file_child[d]; f != -1; f = a->file_sib[f])
-        render_file(o, files, by_file, (size_t)f);
+        render_index_tree(idx, a, dirs, files, c);
+    for(int f = a->file_child[d]; f != -1; f = a->file_sib[f]) {
+        char relpath[900];
+        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) != 0) continue;
+        fputs("<li><a href=\"", idx);
+        put_escaped(idx, relpath);
+        fputs("\">", idx);
+        put_escaped(idx, files->files[f].name ? files->files[f].name : "(unnamed)");
+        fputs("</a></li>\n", idx);
+    }
 
-    fputs("</ul></details></li>\n", o);
+    fputs("</ul></details></li>\n", idx);
 }
 
 // Embedded CSS for the single index.html output. No external dependencies.
@@ -315,58 +329,128 @@ static const char MERMAID_JS[] =
     "d.addEventListener('toggle',function(){if(d.open)run(d);});});\n"
     "run(document);\n";
 
-//Renders the whole tree as one self-contained out_dir/index.html (embedded CSS; Mermaid JS is pulled in only when the model carries block diagrams).
-int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
-                 const Module *modules, size_t module_count,
-                 const char *out_dir, const char *title) {
-    mkdir_p(out_dir);
-
-    char path[1200];
-    snprintf(path, sizeof path, "%s/index.html", out_dir);
-    FILE *o = fopen(path, "wb");
-    if(!o) return -1;
-
-    adjacency_t a;
-    adjacency_build(&a, dirs, files);
-
-    const Module **by_file = build_module_index(modules, module_count, files->count);
-
-    int has_diagram = 0;
-    for(size_t i = 0; i < files->count && !has_diagram; i++) {
-        const Module *mod = by_file[i];
-        if(!mod) continue;
-        for(int k = 0; k < mod->symbolCount; k++)
-            if(mod->symbols[k].diagram && mod->symbols[k].diagram[0]) { has_diagram = 1; break; }
-    }
-
-    const char *t = (title && title[0]) ? title : "Documentation";
+/* Opens the <head> for a page - title, embedded CSS, and (if the page
+ * carries at least one diagram) the <noscript> fallback rule that hides
+ * mermaid blocks when JS is off. Every emitted page shares this shell so
+ * they stay visually consistent despite now being separate files. */
+static void write_head(FILE *o, const char *title, int has_diagram) {
     fputs("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>", o);
-    put_escaped(o, t);
+    put_escaped(o, title);
     fputs("</title>\n<style>\n", o);
     fputs(CSS, o);
     fputs("</style>\n", o);
     if(has_diagram)
         fputs("<noscript><style>pre.mermaid{display:none}</style></noscript>\n", o);
     fputs("</head>\n<body>\n<h1>", o);
-    put_escaped(o, t);
-    fputs("</h1>\n<ul class=\"tree\">\n", o);
+    put_escaped(o, title);
+    fputs("</h1>\n", o);
+}
 
-    for(int d = a.dir_root; d != -1; d = a.dir_sib[d])
-        render_dir(o, &a, dirs, files, by_file, d);
-    for(int f = a.file_root; f != -1; f = a.file_sib[f])
-        render_file(o, files, by_file, (size_t)f);
-
-    fputs("</ul>\n", o);
+static void write_foot(FILE *o, int has_diagram) {
     if(has_diagram) {
         fputs("<script type=\"module\">\n", o);
         fputs(MERMAID_JS, o);
         fputs("</script>\n", o);
     }
     fputs("</body>\n</html>\n", o);
+}
 
-    adjacency_free(&a);
-    free(by_file);
+/* Writes one file's own out_dir/<relpath>.html: page shell plus that
+ * file's symbols. Mirrors md_renderer's write_module_file - same relpath
+ * scheme, same mkdir-of-parent-then-fopen shape. */
+static int write_file_page(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                            const Module **by_file, size_t file_index, const char *out_dir) {
+    const modtree_file_t *file = &files->files[file_index];
+    const char *language = file->name ? language_for_name(file->name) : NULL;
+    const Module *mod = by_file[file_index];
+
+    char relpath[900];
+    if(html_output_relpath(dirs, files, file_index, relpath, sizeof relpath) != 0) return -1;
+
+    char full_path[1200];
+    snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
+
+    char dir_only[1200];
+    snprintf(dir_only, sizeof dir_only, "%s", full_path);
+    char *slash = strrchr(dir_only, '/');
+    if(slash) { *slash = '\0'; mkdir_p(dir_only); }
+
+    FILE *o = fopen(full_path, "wb");
+    if(!o) return -1;
+
+    int has_diagram = 0;
+    if(mod)
+        for(int k = 0; k < mod->symbolCount && !has_diagram; k++)
+            if(mod->symbols[k].diagram && mod->symbols[k].diagram[0]) has_diagram = 1;
+
+    write_head(o, file->name ? file->name : "(unnamed)", has_diagram);
+
+    if(!mod)
+        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted.</p>\n", o);
+    else if(mod->symbolCount == 0)
+        fputs("<p class=\"empty\">No documented symbols.</p>\n", o);
+    if(mod)
+        for(int k = 0; k < mod->symbolCount; k++) render_symbol(o, &mod->symbols[k], language);
+
+    write_foot(o, has_diagram);
+
     int rc = ferror(o) ? -1 : 0;
     if(fclose(o) != 0) rc = -1;
     return rc;
+}
+
+/* Writes out_dir/index.html: page shell plus the nested directory/file tree,
+ * files linking out to their own rendered pages. No diagrams live on this
+ * page, so it never needs the Mermaid script. */
+static int write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                        const char *out_dir, const char *title) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/index.html", out_dir);
+    FILE *o = fopen(path, "wb");
+    if(!o) return -1;
+
+    const char *t = (title && title[0]) ? title : "Documentation";
+    write_head(o, t, 0);
+    fputs("<ul class=\"tree\">\n", o);
+
+    adjacency_t a;
+    adjacency_build(&a, dirs, files);
+    for(int d = a.dir_root; d != -1; d = a.dir_sib[d])
+        render_index_tree(o, &a, dirs, files, d);
+    for(int f = a.file_root; f != -1; f = a.file_sib[f]) {
+        char relpath[900];
+        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) == 0) {
+            fputs("<li><a href=\"", o);
+            put_escaped(o, relpath);
+            fputs("\">", o);
+            put_escaped(o, files->files[f].name ? files->files[f].name : "(unnamed)");
+            fputs("</a></li>\n", o);
+        }
+    }
+    adjacency_free(&a);
+
+    fputs("</ul>\n", o);
+    write_foot(o, 0);
+
+    int rc = ferror(o) ? -1 : 0;
+    if(fclose(o) != 0) rc = -1;
+    return rc;
+}
+
+//Renders the tree as one out_dir/index.html plus one rendered page per file (embedded CSS; Mermaid JS is pulled in per-page only when that file carries block diagrams).
+int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                 const Module *modules, size_t module_count,
+                 const char *out_dir, const char *title) {
+    mkdir_p(out_dir);
+
+    const Module **by_file = build_module_index(modules, module_count, files->count);
+
+    int rc = 0;
+    for(size_t i = 0; i < files->count; i++) {
+        if(write_file_page(dirs, files, by_file, i, out_dir) != 0) { rc = -1; break; }
+    }
+
+    free(by_file);
+    if(rc != 0) return rc;
+    return write_index(dirs, files, out_dir, title);
 }

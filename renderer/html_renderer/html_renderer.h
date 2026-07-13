@@ -1,7 +1,8 @@
 /*
- ZDoc html_renderer — renders the daemon's already-parsed output as a
- single self-contained index.html: expandable <details> nodes per
- directory and module, with per-symbol documentation sections.
+ ZDoc html_renderer — renders the daemon's already-parsed output as one
+ self-contained HTML page per module (mirroring the source directory
+ structure), plus a root index.html linking to all of them, with
+ per-symbol documentation sections on each page.
 
  Takes the module_tree tables and the parsed Module array directly, in
  memory - no JSON, no subprocess, no intermediate model in between. There
@@ -62,12 +63,13 @@ typedef struct {
     int     pathIndex; /* index into the file table this module was parsed from */
 } Module;
 
-/* Render the whole tree as one self-contained out_dir/index.html (embedded
- * CSS, no external dependencies). Each file is matched back to its parsed
- * module via pathIndex (modules[0..module_count)) - a file with no match
- * is rendered with the "Parser failed for this file" notice. 'title' (may
- * be NULL) is used as the page heading. Returns 0 on success, -1 on a
- * write/IO failure. */
+/* Render the tree as out_dir/index.html plus one out_dir/<relpath>.html per
+ * file (embedded CSS, no external dependencies). Each file is matched back
+ * to its parsed module via pathIndex (modules[0..module_count)) - a file
+ * with no match gets its own page with the "Parser failed for this file"
+ * notice. 'title' (may be NULL) is used as index.html's heading; each
+ * file's own page is headed with its filename. Returns 0 on success, -1 on
+ * a write/IO failure. */
 int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                  const Module *modules, size_t module_count,
                  const char *out_dir, const char *title);
