@@ -64,6 +64,19 @@ static void zd_json_ptr_array(FILE *out, char *const *items, size_t n) {
     fputc(']', out);
 }
 
+/* Array of n strings addressed through real pointers (languages: each
+   entry is its own allocation, not a fixed-width row - see zd_options_init). */
+static void zd_json_ptr_array(FILE *out, char *const *items, int n) {
+    int i;
+
+    fputc('[', out);
+    for(i = 0; i < n; i++) {
+        if(i) fputs(", ", out);
+        zd_json_string(out, items[i]);
+    }
+    fputc(']', out);
+}
+
 void zd_request_write(const zd_options *o, FILE *out) {
     fputs("{\n", out);
     fprintf(out, "  \"zdoc_request\": \"generate\",\n");
