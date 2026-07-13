@@ -60,13 +60,9 @@ static char *buf_getline(const FileBuffer *buf, size_t *pos, char **line)
 
 Module *plx_parse_file(const char *path)
 {
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        perror(path);
-        return NULL;
-    }
-
     FileBuffer buf = read_file_buffer(path);
+    if (!buf.data) /* read_file_buffer already reported the failure */
+        return NULL;
 
     Module *mod = init_module(path);
     DocBlock blk;
@@ -191,6 +187,5 @@ Module *plx_parse_file(const char *path)
     module_shrink_to_fit(mod);
 
     free_file_buffer(&buf);
-    fclose(f);
     return mod;
 }
