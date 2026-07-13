@@ -164,13 +164,8 @@ static int zd_json_value(zd_json *j, zd_options *o, const char *key) {
         for(;;) {
             if(!zd_json_str(j, item, sizeof item)) return 0;
 
-            if(is_lang && *item) {
-                const char *canon = zd_lang_canonical(item);
-
-                if(!canon)
-                    fprintf(stderr, "zdoc: zdoc.json:%d: unknown language '%s' ignored (supported: %s)\n", j->line, item, zd_lang_supported());
-                else if(o->n_languages < ZD_MAX_LANGS)
-                    snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", canon);
+            if(is_lang && *item && o->n_languages < ZD_MAX_LANGS) {
+                snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", item);
             }
             else if(is_excl && *item && o->n_excludes < ZD_MAX_EXCLUDES) snprintf(o->excludes[o->n_excludes++],ZD_GLOB_MAX,"%s", item);
 
@@ -276,12 +271,8 @@ void zd_config_load(zd_options *o) {
             char *item = zd_unquote(zd_trim(s + 1));
 
              if (strcmp(list_key, "languages") == 0) {
-                const char *canon = *item ? zd_lang_canonical(item) : NULL;
-
-                if (*item && !canon)
-                    fprintf(stderr, "zdoc: zdoc.yaml:%d: unknown language '%s' ignored (supported: %s)\n", lineno, item, zd_lang_supported());
-                else if (canon && o->n_languages < ZD_MAX_LANGS)
-                    snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", canon);
+                if (*item && o->n_languages < ZD_MAX_LANGS)
+                    snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", item);
             } else if (strcmp(list_key, "exclude") == 0) {
                 if (*item && o->n_excludes < ZD_MAX_EXCLUDES) snprintf(o->excludes[o->n_excludes++], ZD_GLOB_MAX, "%s", item);
             } else {

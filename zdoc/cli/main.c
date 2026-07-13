@@ -3,6 +3,8 @@
 #include "config.h"
 #include "cli.h"
 #include "request.h"
+#include "../zdoc_daemon.h"
+#include <stdlib.h>
 
 int main(int argc, char **argv) {
     zd_options opt;
@@ -17,6 +19,9 @@ int main(int argc, char **argv) {
     if(zd_request_validate(&opt) != 0) return 1;
 
     /* Placeholder for the daemon call: emit the request it will receive. */
-    zd_request_write(&opt, stdout);
+    // zd_request_write(&opt, stdout);
+
+    zdoc_daemon_start_job(&opt);
+
     return 0;
 }
