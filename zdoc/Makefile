@@ -46,7 +46,7 @@ JPARSER = ../parser/java_parser
 PARSER  = ../parser
 THREAD  = ./threading_interface
 
-SRCS = zdoc_deamon.c \
+SRCS = zdoc_daemon.c \
        $(PARSER)/parser_interface.c \
        $(SHARED)/parser_shared.c \
        $(MODTREE)/fs_walk.c \

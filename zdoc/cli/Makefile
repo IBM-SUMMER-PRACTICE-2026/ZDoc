@@ -1,4 +1,4 @@
-CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Wpedantic
+CFLAGS ?= -O2 -std=c11 -Wall -Wextra
 
 ifeq ($(OS),Windows_NT)
     EXE := .exe
@@ -11,12 +11,55 @@ ifeq ($(OS),Windows_NT)
     ifndef MSYSTEM
         WINDOWS_CMD := 1
     endif
+    # Windows threads come from windows.h; no extra link flag needed.
+    THREADFLAGS :=
 else
     EXE :=
+    # POSIX threads (pthread), needed by the daemon's thread pool.
+    THREADFLAGS := -pthread
 endif
 
 BIN  = zdoc$(EXE)
 OBJS = main.o options.o cli.o config.o request.o
+
+# The daemon engine lives in sibling components (parser/, extractor/,
+# ../threading_interface). Compiled straight from source into the final
+# link, like ../Makefile does, rather than emitting .o files into those
+# other directories.
+SHARED  = ../../parser/shared
+MODTREE = ../../extractor/doc_extractor/module_tree
+PLX     = ../../parser/plx_parser
+CPARSER = ../../parser/c_parser
+JPARSER = ../../parser/java_parser
+PARSER  = ../../parser
+THREAD  = ../threading_interface
+
+DAEMON_SRCS = ../zdoc_daemon.c \
+              $(PARSER)/parser_interface.c \
+              $(SHARED)/parser_shared.c \
+              $(MODTREE)/fs_walk.c \
+              $(MODTREE)/path_interface.c \
+              $(MODTREE)/modtree_table.c \
+              $(PLX)/plx_parser.c \
+              $(PLX)/helpers.c \
+              $(CPARSER)/c_parser.c \
+              $(JPARSER)/java_parser.c \
+              $(JPARSER)/doc_comment.c \
+              $(THREAD)/threading_interface.c
+
+DAEMON_HDRS = ../zdoc_daemon.h \
+              $(PARSER)/parser_interface.h \
+              $(SHARED)/parser_shared.h \
+              $(MODTREE)/fs_walk.h \
+              $(MODTREE)/path_interface.h \
+              $(MODTREE)/modtree_tables.h \
+              $(PLX)/plx_parser.h \
+              $(PLX)/helpers.h \
+              $(CPARSER)/c_parser.h \
+              $(JPARSER)/java_parser.h \
+              $(JPARSER)/doc_comment.h \
+              $(JPARSER)/util.h \
+              $(THREAD)/threading_interface.h
 
 # Where `make install` drops the binary. Must be a directory already on PATH.
 # Override on the command line, e.g. `make install PREFIX=/usr/local/bin`.
@@ -45,10 +88,10 @@ endif
 
 all: $(BIN)
 
-$(BIN): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+$(BIN): $(OBJS) $(DAEMON_SRCS) $(DAEMON_HDRS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(DAEMON_SRCS) $(THREADFLAGS)
 
-main.o:    main.c options.h cli.h config.h request.h
+main.o:    main.c options.h cli.h config.h request.h ../zdoc_daemon.h
 options.o: options.c options.h
 cli.o:     cli.c cli.h options.h
 config.o:  config.c config.h options.h
