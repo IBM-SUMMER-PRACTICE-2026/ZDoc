@@ -4,6 +4,7 @@
 #include "../parser/plx_parser/plx_parser.h"
 #include "../parser/parser_interface.h"
 #include "./threading_interface/threading_interface.h"
+#include "zdoc_daemon.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -12,10 +13,6 @@
 #ifndef NUM_THREADS
 #define NUM_THREADS 4
 #endif
-
-const char* root_path;
-size_t extension_count;
-const char** extensions;
 
 static double now_seconds(void) {
 #ifdef _WIN32
@@ -67,29 +64,18 @@ void thread_func() {
     }
 }
 
-int main(int argc, char* argv[]) {
-    
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <folder> [ext1 ext2 ...]\n", argv[0]);
-        fprintf(stderr, "  no extensions given -> matches every file\n");
-        fprintf(stderr, "example: %s ./myproject .plx .pli\n", argv[0]);
-        return 1;
-    }
-
-    root_path = argv[1];
-
-    extension_count = (argc > 2) ? (size_t)(argc - 2) : 0;
-    extensions = (extension_count > 0) ? (const char**)&argv[2] : NULL;
+void zdoc_daemon_start_job(zd_options* options) {
 
     modtree_dir_table_init(&global_dir_table);
     modtree_file_table_init(&global_file_table);
 
-    int rc = fs_walk(root_path, &global_dir_table, &global_file_table, extensions, extension_count);
+    int rc = fs_walk(options->inputs[0], &global_dir_table, &global_file_table,
+                      (const char**)options->languages, (size_t)options->n_languages);
     if (rc != 0) {
-        fprintf(stderr, "fs_walk failed on '%s'\n", root_path);
+        fprintf(stderr, "fs_walk failed on '%s'\n", options->inputs[0]);
         modtree_dir_table_free(&global_dir_table);
         modtree_file_table_free(&global_file_table);
-        return 1;
+        return;
     }
 
     init_resources();
@@ -109,7 +95,6 @@ int main(int argc, char* argv[]) {
            NUM_THREADS, files_count, elapsed);
 
         
-
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
 

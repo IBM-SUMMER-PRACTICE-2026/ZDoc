@@ -38,7 +38,7 @@ static void zd_json_string(FILE *out, const char *s) {
 }
 
 /* Array of n strings laid out in rows of `stride` bytes - lets one helper
-   serve languages, excludes and inputs despite their different row widths. */
+   serve excludes and inputs despite their different row widths. */
 static void zd_json_array(FILE *out, const char *base, size_t stride, int n) {
     int i;
 
@@ -46,6 +46,19 @@ static void zd_json_array(FILE *out, const char *base, size_t stride, int n) {
     for(i = 0; i < n; i++) {
         if(i) fputs(", ", out);
         zd_json_string(out, base + (size_t)i * stride);
+    }
+    fputc(']', out);
+}
+
+/* Array of n strings addressed through real pointers (languages: each
+   entry is its own allocation, not a fixed-width row - see zd_options_init). */
+static void zd_json_ptr_array(FILE *out, char *const *items, int n) {
+    int i;
+
+    fputc('[', out);
+    for(i = 0; i < n; i++) {
+        if(i) fputs(", ", out);
+        zd_json_string(out, items[i]);
     }
     fputc(']', out);
 }
@@ -69,7 +82,7 @@ void zd_request_write(const zd_options *o, FILE *out) {
     fprintf(out, "  \"no_source\": %s,\n", o->no_source ? "true" : "false");
 
     fputs("  \"languages\": ", out);
-    zd_json_array(out, &o->languages[0][0], ZD_LANG_MAX, o->n_languages);
+    zd_json_ptr_array(out, o->languages, o->n_languages);
     fputs(",\n", out);
 
     fputs("  \"exclude\": ", out);

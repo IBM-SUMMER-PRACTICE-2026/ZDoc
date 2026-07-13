@@ -34,7 +34,7 @@ typedef struct {
     char      title[ZD_TITLE_MAX];
     char      bob_cli[ZD_PATH_MAX];
     char      bob_args[ZD_ARGS_MAX];
-    char      languages[ZD_MAX_LANGS][ZD_LANG_MAX];
+    char      **languages;
     int       n_languages;
     char      excludes[ZD_MAX_EXCLUDES][ZD_GLOB_MAX];
     int       n_excludes;
@@ -49,10 +49,4 @@ void zd_options_init(zd_options *o);
 const char *zd_mode_name(zd_mode m);
 const char *zd_format_name(zd_format f);
 
-/* Language table (canonical names + accepted aliases, per docs/ZDOC.md).
-   zd_lang_canonical maps a name or alias ("c++", "assembler") to its
-   canonical form, case-insensitively; NULL if unknown. */
-const char *zd_lang_canonical(const char *name);
-const char *zd_lang_supported(void); /* comma list for error messages */
-
-#endif 
+#endif
