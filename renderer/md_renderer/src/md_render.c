@@ -128,6 +128,9 @@ static void write_symbol(FILE *o, const Symbol *s, const char *language) {
     fputs(s->signature ? s->signature : "", o);
     fputs("\n```\n", o);
 
+    if(s->type && s->type[0]) fprintf(o, "\n**Kind**\n%s\n", s->type);
+    fprintf(o, "\n**Line**\n%u\n", s->line);
+
     write_param_table(o, s);
 
     if(s->output && s->output[0]) fprintf(o, "\n**Returns**\n%s\n", s->output);

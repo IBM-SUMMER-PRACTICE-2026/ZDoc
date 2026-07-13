@@ -229,6 +229,13 @@ static void render_symbol(FILE *o, const Symbol *s, const char *language) {
     put_escaped(o, s->signature);
     fputs("</code></pre>\n", o);
 
+    if(s->type && s->type[0]) {
+        fputs("<p class=\"h\">Kind</p>\n<p>", o);
+        put_escaped(o, s->type);
+        fputs("</p>\n", o);
+    }
+    fprintf(o, "<p class=\"h\">Line</p>\n<p>%u</p>\n", s->line);
+
     if(s->inputCount > 0) {
         fputs("<p class=\"h\">Parameters</p>\n"
               "<table><tr><th>Name</th><th>Description</th></tr>\n", o);
