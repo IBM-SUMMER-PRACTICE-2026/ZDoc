@@ -1,0 +1,4 @@
+*.o
+*.dSYM
+global_resources_test
+parser_shared_interface_test
