@@ -85,25 +85,19 @@ static const Module **build_module_index(const Module *modules, size_t module_co
     return by_file;
 }
 
-/* Strips the extension off the filename component of an in-place path
- * (i.e. after the last '/', not any '.' that happens to be in a directory
- * name earlier in the path). */
-static void strip_last_ext(char *path) {
-    char *slash = strrchr(path, '/');
-    char *base = slash ? slash + 1 : path;
-    char *dot = strrchr(base, '.');
-    if(dot) *dot = '\0';
-}
-
-/* Where a given file's rendered page lives, relative to out_dir - the
- * source path with its extension swapped for .html. Used both as the
- * actual write location and as index.html's link target, so the two can
- * never disagree with each other. */
+/* Where a given file's rendered page lives, relative to out_dir - the full
+ * source path with .html appended (not the source extension swapped out:
+ * two files that differ only in extension, e.g. student_grades.plx and
+ * student_grades.plxmac, would otherwise both reduce to
+ * student_grades.html and silently overwrite one another). fs_walk never
+ * produces two files with the same full relative path, so appending is
+ * guaranteed unique where swapping wasn't. Used both as the actual write
+ * location and as index.html's link target, so the two can never disagree
+ * with each other. */
 static int html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                                 size_t file_index, char *out, size_t out_size) {
     char src_path[900];
     if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != 0) return -1;
-    strip_last_ext(src_path);
     int n = snprintf(out, out_size, "%s.html", src_path);
     return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
 }
