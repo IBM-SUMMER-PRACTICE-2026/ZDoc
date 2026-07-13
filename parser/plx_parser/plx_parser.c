@@ -90,7 +90,7 @@ Module *plx_parse_file(const char *path)
         lineNo++;
 
         if (capturing) {
-            if (sig_consume(&sig, line.data, &sigState)) {
+            if (sig_consume(&sig, line, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);
@@ -109,12 +109,12 @@ Module *plx_parse_file(const char *path)
 
         // Inside a Method Prolog block (.plxmac)
         if (inProlog) {
-            if (is_prolog_end(line.data)) {
+            if (is_prolog_end(line)) {
                 if (blk.active)
                     blk.closed = 1; /* block done; wait for the ProcEntry */
                 inProlog = 0;
             } else {
-                content = prolog_content(line.data);
+                content = prolog_content(line);
                 if (*content != '\0') /* padding-only lines are skipped */
                     feed_doc_line(&blk, mod, content, lineNo);
                 free(content);
@@ -122,7 +122,7 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        if (is_prolog_start(line.data)) {
+        if (is_prolog_start(line)) {
             if (blk.closed) {
                 /* new block starts while one is pending: flush it */
                 block_to_symbol(&blk, mod, NULL, NULL, lineNo);
@@ -132,7 +132,7 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        content = comment_content(line.data);
+        content = comment_content(line);
         if (content) {
             // Padding only
             if (*content == '\0') {
@@ -151,9 +151,9 @@ Module *plx_parse_file(const char *path)
             continue;
         }
 
-        procName = match_proc_start(line.data);
+        procName = match_proc_start(line);
         if (!procName)
-            procName = match_procentry(line.data);
+            procName = match_procentry(line);
         if (procName) {
             capturing = 1;
             sigState.depth = 0;
@@ -161,7 +161,7 @@ Module *plx_parse_file(const char *path)
             sigState.inString = 0;
             sigProc = procName;
             procLine = lineNo;
-            if (sig_consume(&sig, line.data, &sigState)) {
+            if (sig_consume(&sig, line, &sigState)) {
                 char *sigText = squeeze_ws(sb_steal(&sig));
                 if (blk.active)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);

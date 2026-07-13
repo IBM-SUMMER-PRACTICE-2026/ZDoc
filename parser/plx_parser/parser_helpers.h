@@ -8,17 +8,17 @@
 /*********************************************/
 /*          PLXMAC PROLOG PARSING            */
 /*********************************************/
-int is_prolog_start(const char *line);
-int is_prolog_end(const char *line);
-char *prolog_content(const char *line);
+int is_prolog_start(Line line);
+int is_prolog_end(Line line);
+char *prolog_content(Line line);
 
 
 
 /*********************************************/
 /*          PROC STATEMENTS NAMES            */
 /*********************************************/
-char *match_proc_start(const char *line);
-char *match_procentry(const char *line);
+char *match_proc_start(Line line);
+char *match_procentry(Line line);
 
 
 
@@ -33,7 +33,7 @@ typedef struct {
     int inString;
 } SigState;
 
-int sig_consume(StrBuf *sig, const char *line, SigState *st);
+int sig_consume(StrBuf *sig, Line line, SigState *st);
 
 
 
@@ -56,7 +56,7 @@ FieldId parse_label(const char *content, const char **rest);
 /*********************************************/
 /*          COMMENT LINE HANDLING            */
 /*********************************************/
-char *comment_content(const char *line);
+char *comment_content(Line line);
 int is_banner(const char *content);
 
 

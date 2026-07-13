@@ -16,17 +16,17 @@
  * listing-border delimiters, so it is recognized by the banner text, not
  * the delimiter bytes.
  */
-int is_prolog_start(const char *line)
+int is_prolog_start(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
     if (*s != '*' && *s != '/')
         return 0;
     return str_istr(s, "Start of Method Prolog") != NULL;
 }
 
-int is_prolog_end(const char *line)
+int is_prolog_end(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
     if (*s != '*' && *s != '/')
         return 0;
     return str_istr(s, "End of Method Prolog") != NULL;
@@ -36,9 +36,9 @@ int is_prolog_end(const char *line)
  * Strip the leading '*' box border from a Method Prolog interior line and
  * return the trimmed content (heap-allocated; "" for a padding-only line).
  */
-char *prolog_content(const char *line)
+char *prolog_content(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
 
     if (*s == '*')
         s++;
@@ -52,9 +52,9 @@ char *prolog_content(const char *line)
 /*********************************************/
 
 /* Match "<IDENT> : PROC" at the start of a code line; returns the name. */
-char *match_proc_start(const char *line)
+char *match_proc_start(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
     const char *idEnd, *p;
 
     if (!isalpha((unsigned char)*s) && *s != '_')
@@ -79,9 +79,9 @@ char *match_proc_start(const char *line)
  * the heap-allocated name or NULL. Case-insensitive. ProcEnd deliberately
  * does not match.
  */
-char *match_procentry(const char *line)
+char *match_procentry(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
     const char *idStart, *p;
 
     if (*s != '?')
@@ -112,9 +112,9 @@ char *match_procentry(const char *line)
 /*********************************************/
 /*               SIGNATURE                   */
 /*********************************************/
-int sig_consume(StrBuf *sig, const char *line, SigState *st)
+int sig_consume(StrBuf *sig, Line line, SigState *st)
 {
-    const char *p = line;
+    const char *p = line.data;
 
     if (sig->len)
         sb_puts(sig, " ");
@@ -225,9 +225,9 @@ FieldId parse_label(const char *content, const char **rest)
  * return its inner content (heap-allocated, trimmed, trailing @TAG
  * stripped). Otherwise return NULL.
  */
-char *comment_content(const char *line)
+char *comment_content(Line line)
 {
-    const char *s = skip_ws(line);
+    const char *s = skip_ws(line.data);
 
     if(s[0] != '/' || s[1] != '*') return NULL;
 
