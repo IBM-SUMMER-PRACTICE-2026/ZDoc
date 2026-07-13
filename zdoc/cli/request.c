@@ -66,8 +66,8 @@ static void zd_json_ptr_array(FILE *out, char *const *items, size_t n) {
 
 /* Array of n strings addressed through real pointers (languages: each
    entry is its own allocation, not a fixed-width row - see zd_options_init). */
-static void zd_json_ptr_array(FILE *out, char *const *items, int n) {
-    int i;
+static void zd_json_ptr_array(FILE *out, char *const *items, size_t n) {
+    size_t i;
 
     fputc('[', out);
     for(i = 0; i < n; i++) {
