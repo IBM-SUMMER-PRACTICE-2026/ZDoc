@@ -1,8 +1,8 @@
 /*
- * file_buffer — read a whole source file into a padded in-memory buffer.
+ * file_buffer — map a whole source file into memory.
  *
- * The buffer carries 16 trailing NUL bytes so parsers can look a few bytes
- * past the end of the content without an out-of-bounds read. Allocation and
+ * The file is memory-mapped read-only, exactly its own length with no trailing
+ * padding; parsers must bounds-check every access against fb->len. Mapping and
  * release live entirely here; parsers deal only with FileBuffer.
  */
 
@@ -25,9 +25,6 @@
 
 #endif
 
-
-/* NUL padding bytes appended after the file contents. */
-#define FILE_BUFFER_PADDING 16
 
 FileBuffer read_file_buffer(const char *path) {
     FileBuffer fb = { NULL, 0 };

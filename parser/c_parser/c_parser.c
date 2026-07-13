@@ -2,8 +2,9 @@
  * ZDoc c_parser — implementation.
  *
  * Design for speed:
- *   - one forward pass over a padded copy of the input; no regex, no tokens
- *     stored, no backtracking
+ *   - one forward pass over the input; no regex, no tokens stored, no
+ *     backtracking. All look-ahead is bounds-checked against END(st)/PEEK, so
+ *     the buffer needs no trailing padding.
  *   - function bodies (the bulk of any source file) are skipped by a
  *     brace-matching loop driven by a 256-entry "interesting char" table
  *   - line numbers are computed lazily (memchr over the gap since the last
@@ -107,7 +108,12 @@ typedef struct {
 /* Buffer bounds and cursor offset, always derived from the FileBuffer. */
 #define BEGIN(st) ((st)->fb->data)
 #define END(st)   ((st)->fb->data + (st)->fb->len)
-#define INDEX(st) ((size_t)((st)->cursor - (st)->fb->data))
+
+/* Look ahead k bytes from the cursor, yielding 0 at or past the end so no read
+ * ever leaves the buffer. 0 is not a token the scanner acts on, so this ends a
+ * scan exactly as a real terminator would - the parser needs no trailing pad. */
+#define PEEK(st, k) \
+    ((st)->cursor + (k) < END(st) ? (unsigned char)(st)->cursor[(k)] : 0)
 
 typedef struct {
     const char *s, *e;
@@ -199,7 +205,7 @@ static void skip_block(P *st) /* p is just past the opening slash-star */
             st->cursor = end;
             return;
         }
-        if (q[1] == '/') { /* padded buffer makes q[1] safe */
+        if (q + 1 < end && q[1] == '/') {
             st->cursor = q + 2;
             return;
         }
@@ -294,13 +300,13 @@ static void skip_pp_line(P *st) /* p at '#'; stops at the logical EOL */
             }
             break;
         }
-        if (c == '/' && p[1] == '*') {
+        if (c == '/' && p + 1 < end && p[1] == '*') {
             st->cursor = p + 2;
             skip_block(st);
             p = st->cursor;
             continue;
         }
-        if (c == '/' && p[1] == '/') {
+        if (c == '/' && p + 1 < end && p[1] == '/') {
             const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
             p = nl ? nl : end;
             break;
@@ -349,10 +355,10 @@ static void skip_body(P *st) /* p at '{' */
                 skip_char(st);
             break;
         case '/':
-            if (p[1] == '*') {
+            if (p + 1 < end && p[1] == '*') {
                 st->cursor = p + 2;
                 skip_block(st);
-            } else if (p[1] == '/') {
+            } else if (p + 1 < end && p[1] == '/') {
                 skip_line_comment(st);
             } else {
                 st->cursor++;
@@ -372,10 +378,10 @@ static void ws_quiet(P *st)
     for (;;) {
         while (st->cursor < end && isspace((unsigned char)*st->cursor))
             st->cursor++;
-        if (st->cursor[0] == '/' && st->cursor[1] == '*') {
+        if (PEEK(st, 0) == '/' && PEEK(st, 1) == '*') {
             st->cursor += 2;
             skip_block(st);
-        } else if (st->cursor[0] == '/' && st->cursor[1] == '/') {
+        } else if (PEEK(st, 0) == '/' && PEEK(st, 1) == '/') {
             skip_line_comment(st);
         } else {
             return;
@@ -390,7 +396,8 @@ static int is_filedoc_block(docref d)
 {
     for (const char *q = d.s; q + 5 <= d.e; q++) {
         if ((*q == '@' || *q == '\\') &&
-            ((memcmp(q + 1, "file", 4) == 0 && !isalpha((unsigned char)q[5])) ||
+            ((memcmp(q + 1, "file", 4) == 0 &&
+              (q + 5 == d.e || !isalpha((unsigned char)q[5]))) ||
              (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0)))
             return 1;
     }
@@ -407,10 +414,10 @@ static void ws_and_docs(P *st)
     for (;;) {
         while (st->cursor < end && isspace((unsigned char)*st->cursor))
             st->cursor++;
-        if (st->cursor[0] == '/' && st->cursor[1] == '*') {
+        if (PEEK(st, 0) == '/' && PEEK(st, 1) == '*') {
             const char *cs = st->cursor;
-            int isdoc = (st->cursor[2] == '*' || st->cursor[2] == '!') &&
-                        !(st->cursor[2] == '*' && st->cursor[3] == '/');
+            int isdoc = (PEEK(st, 2) == '*' || PEEK(st, 2) == '!') &&
+                        !(PEEK(st, 2) == '*' && PEEK(st, 3) == '/');
             st->cursor += 2;
             skip_block(st);
             if (isdoc) {
@@ -422,9 +429,9 @@ static void ws_and_docs(P *st)
             } else {
                 st->doc.valid = 0;
             }
-        } else if (st->cursor[0] == '/' && st->cursor[1] == '/') {
+        } else if (PEEK(st, 0) == '/' && PEEK(st, 1) == '/') {
             const char *cs = st->cursor;
-            int isdoc = (st->cursor[2] == '/' || st->cursor[2] == '!');
+            int isdoc = (PEEK(st, 2) == '/' || PEEK(st, 2) == '!');
             skip_line_comment(st);
             if (isdoc) {
                 if (st->doc.valid && st->doc.is_line) {
@@ -685,23 +692,23 @@ static void handle_pp(P *st)
 {
     const char *hash = st->cursor;
     st->cursor++;
-    while (*st->cursor == ' ' || *st->cursor == '\t')
+    while (st->cursor < END(st) && (*st->cursor == ' ' || *st->cursor == '\t'))
         st->cursor++;
     const char *w = st->cursor;
-    while (is_id_char((unsigned char)*st->cursor))
+    while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
         st->cursor++;
     size_t wn = (size_t)(st->cursor - w);
 
     if (wn == 6 && memcmp(w, "define", 6) == 0) {
         docref doc = st->doc;
         st->doc.valid = 0;
-        while (*st->cursor == ' ' || *st->cursor == '\t')
+        while (st->cursor < END(st) && (*st->cursor == ' ' || *st->cursor == '\t'))
             st->cursor++;
         const char *ns = st->cursor;
-        while (is_id_char((unsigned char)*st->cursor))
+        while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
             st->cursor++;
         span nm = {ns, st->cursor};
-        int fnlike = (*st->cursor == '(');
+        int fnlike = (PEEK(st, 0) == '(');
         uint32_t line = line_at(st, hash);
         const char *sig_end = NULL;
         if (fnlike) {
@@ -773,7 +780,7 @@ static void parse_statement(P *st)
 
         if (is_id_start(c)) {
             st->cursor++;
-            while (is_id_char((unsigned char)*st->cursor))
+            while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
                 st->cursor++;
             span id = {tp, st->cursor};
             ntok++;
@@ -807,18 +814,20 @@ static void parse_statement(P *st)
                 id.s = tilde_pos;
             /* operator overloads: swallow the operator characters */
             if (spis((span){tp, st->cursor}, "operator")) {
+                const char *end = END(st);
                 const char *q = st->cursor;
-                while (*q == ' ' || *q == '\t')
+                while (q < end && (*q == ' ' || *q == '\t'))
                     q++;
-                if (strchr("+-*/%^&|~!=<>,", *q)) {
+                if (q < end && strchr("+-*/%^&|~!=<>,", *q)) {
                     const char *o = q;
-                    while (strchr("+-*/%^&|~!=<>,", *q))
+                    while (q < end && strchr("+-*/%^&|~!=<>,", *q))
                         q++;
                     (void)o;
                     id.e = q;
                     st->cursor = q;
-                } else if ((q[0] == '(' && q[1] == ')') ||
-                           (q[0] == '[' && q[1] == ']')) {
+                } else if (q + 1 < end &&
+                           ((q[0] == '(' && q[1] == ')') ||
+                            (q[0] == '[' && q[1] == ']'))) {
                     id.e = q + 2;
                     st->cursor = q + 2;
                 }
@@ -832,7 +841,7 @@ static void parse_statement(P *st)
         st->cursor++;
         switch (c) {
         case ':':
-            if (*st->cursor == ':') {
+            if (PEEK(st, 0) == ':') {
                 st->cursor++;
                 if (prev == TIDENT) {
                     chain_start = last_ident.s;
@@ -892,7 +901,7 @@ static void parse_statement(P *st)
             break;
 
         case '=':
-            if (*st->cursor == '=') { /* comparison, not init */
+            if (PEEK(st, 0) == '=') { /* comparison, not init */
                 st->cursor++;
                 prev = TOTHER;
                 break;
