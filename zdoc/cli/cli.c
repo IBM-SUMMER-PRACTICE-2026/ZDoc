@@ -17,7 +17,7 @@ static void zd_print_help(void) {
 "  --lang <ext>[,<ext>]      Restrict processing to files with these extensions,\n"
 "                            comma-separated, dot included (e.g. --lang .c,.cpp)\n"
 "  --recursive               Recurse into subdirectories\n"
-"  --exclude <glob>          Exclude files matching glob (repeatable)\n"
+"  --exclude <glob>          Exclude files matching glob pattern\n"
 "  --bob-cli <path>          Path to Bob CLI binary (default: bob on PATH)\n"
 "  --bob-args <args>         Additional arguments forwarded to Bob CLI\n"
 "  --title <string>          Project title shown in the output\n"
