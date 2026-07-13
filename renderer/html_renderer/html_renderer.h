@@ -23,45 +23,14 @@
 #ifndef ZDOC_HTML_RENDERER_H
 #define ZDOC_HTML_RENDERER_H
 
-#include <stdint.h>
-
-#include "../../extractor/doc_extractor/module_tree/modtree_tables.h"
+/* Module/Symbol/InputParam - the shared contract every parser emits -
+ * come straight from parser_shared.h rather than being redefined here.
+ * This header also pulls in modtree_tables.h transitively through it. */
+#include "../../parser/shared/parser_shared.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* The shape html_renderer expects its already-parsed input in. This
- * mirrors parser/shared/parser_shared.h's Module/Symbol/InputParam - the
- * shared contract every parser emits - defined locally here rather than
- * including that header directly, so this renderer doesn't depend on any
- * file under parser/, only on this documented shape staying in agreement
- * with it. */
-typedef struct {
-    char *name;
-    char *description;
-} InputParam;
-
-typedef struct {
-    char       *name;
-    char       *description;
-    char       *signature;
-    InputParam *input;
-    int         inputCount;
-    char       *output;
-    char       *notes;
-    uint32_t    line;
-    char       *type;
-    char       *diagram; /* Mermaid flowchart source (AI Assisted mode), NULL when absent */
-} Symbol;
-
-typedef struct {
-    char   *filename;
-    Symbol *symbols;
-    int     symbolCount;
-    int     symbolCap;
-    int     pathIndex; /* index into the file table this module was parsed from */
-} Module;
 
 /* Render the tree as out_dir/index.html plus one out_dir/<relpath>.html per
  * file (embedded CSS, no external dependencies). Each file is matched back

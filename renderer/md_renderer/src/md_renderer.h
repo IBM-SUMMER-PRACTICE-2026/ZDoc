@@ -18,44 +18,15 @@
 #define ZDOC_MD_RENDERER_H
 
 #include <stddef.h>
-#include <stdint.h>
 
-#include "../../../extractor/doc_extractor/module_tree/modtree_tables.h"
+/* Module/Symbol/InputParam - the shared contract every parser emits -
+ * come straight from parser_shared.h rather than being redefined here.
+ * This header also pulls in modtree_tables.h transitively through it. */
+#include "../../../parser/shared/parser_shared.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* The shape md_renderer expects its already-parsed input in. This mirrors
- * parser/shared/parser_shared.h's Module/Symbol/InputParam - the shared
- * contract every parser emits - defined locally here rather than including
- * that header directly, so this renderer doesn't depend on any file under
- * parser/, only on this documented shape staying in agreement with it. */
-typedef struct {
-    char *name;
-    char *description;
-} InputParam;
-
-typedef struct {
-    char       *name;
-    char       *description;
-    char       *signature;
-    InputParam *input;
-    int         inputCount;
-    char       *output;
-    char       *notes;
-    uint32_t    line;
-    char       *type;
-    char       *diagram;
-} Symbol;
-
-typedef struct {
-    char   *filename;
-    Symbol *symbols;
-    int     symbolCount;
-    int     symbolCap;
-    int     pathIndex; /* index into the file table this module was parsed from */
-} Module;
 
 /* Render the whole tree as Markdown under out_dir: one .md file per entry
  * in 'files' (mirroring the source directory structure) plus a root
