@@ -97,6 +97,16 @@ char *trim_dup(const char *s, size_t n)
     return xstrndup(s, (size_t)(end - s));
 }
 
+Line trim_slice(const char *s, size_t n)
+{
+    const char *end = s + n;
+    while (s < end && isspace((unsigned char)*s))
+        s++;
+    while (end > s && isspace((unsigned char)end[-1]))
+        end--;
+    return (Line){ (char *)s, (size_t)(end - s) };
+}
+
 char *squeeze_ws(char *s)
 {
     char *r = s, *w = s;
@@ -149,6 +159,15 @@ void sb_join(StrBuf *b, const char *s)
     if (b->len)
         sb_puts(b, " ");
     sb_puts(b, s);
+}
+
+void sb_join_n(StrBuf *b, const char *s, size_t n)
+{
+    if (n == 0)
+        return;
+    if (b->len)
+        sb_puts(b, " ");
+    sb_putn(b, s, n);
 }
 
 char *sb_steal(StrBuf *b)

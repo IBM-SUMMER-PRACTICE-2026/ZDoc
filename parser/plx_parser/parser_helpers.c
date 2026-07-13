@@ -38,14 +38,14 @@ int is_prolog_end(Line line)
  * Strip the leading '*' box border from a Method Prolog interior line and
  * return the trimmed content (heap-allocated; "" for a padding-only line).
  */
-char *prolog_content(Line line)
+Line prolog_content(Line line)
 {
     const char *end = line.data + line.len;
     const char *s = skip_ws_n(line.data, end);
 
     if (s < end && *s == '*')
         s++;
-    return trim_dup(s, (size_t)(end - s));
+    return trim_slice(s, (size_t)(end - s));
 }
 
 
@@ -194,22 +194,24 @@ const struct {
  * not label-shaped (treated as a continuation), FIELD_UNKNOWN for a labeled
  * line whose label is not in the table. On success *rest points past the ':'.
  */
-FieldId parse_label(const char *content, const char **rest)
+FieldId parse_label(Line content, Line *rest)
 {
-    const char *start = content;
-    const char *p = content;
+    const char *start = content.data;
+    const char *end = content.data + content.len;
+    const char *p = content.data;
     size_t n, i;
 
-    if (!isalpha((unsigned char)*p))
+    if (p >= end || !isalpha((unsigned char)*p))
         return FIELD_NONE;
-    while (isalnum((unsigned char)*p) || *p == '_' || *p == '-')
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_' || *p == '-'))
         p++;
     n = (size_t)(p - start);
-    while (*p == ' ' || *p == '\t')
+    while (p < end && (*p == ' ' || *p == '\t'))
         p++;
-    if (*p != ':')
+    if (p >= end || *p != ':')
         return FIELD_NONE;
-    *rest = p + 1;
+    rest->data = (char *)(p + 1);
+    rest->len = (size_t)(end - (p + 1));
 
     for (i = 0; i < sizeof(LABEL_TABLE) / sizeof(LABEL_TABLE[0]); i++) {
         if (
@@ -232,17 +234,14 @@ FieldId parse_label(const char *content, const char **rest)
  * return its inner content (heap-allocated, trimmed, trailing @TAG
  * stripped). Otherwise return NULL.
  */
-char *comment_content(Line line)
+Line comment_content(Line line)
 {
     const char *bufEnd = line.data + line.len;
     const char *s = skip_ws_n(line.data, bufEnd);
 
-    if (bufEnd - s < 2 || s[0] != '/' || s[1] != '*') return NULL;
+    if (bufEnd - s < 2 || s[0] != '/' || s[1] != '*') return (Line){ NULL, 0 };
 
     size_t len = (size_t)(bufEnd - s);
-
-    char *content;
-    size_t n;
 
     while (len && isspace((unsigned char)s[len - 1]))
         len--;
@@ -250,32 +249,34 @@ char *comment_content(Line line)
         len < 4 ||
         s[len - 2] != '*' ||
         s[len - 1] != '/'
-    ) return NULL;
+    ) return (Line){ NULL, 0 };
 
-    content = trim_dup(s + 2, len - 4);
+    Line content = trim_slice(s + 2, len - 4);
 
-    /* Strip the trailing change-activity tag (@L0A, @00C, ...). */
-    n = strlen(content);
+    /* Strip the trailing change-activity tag (@L0A, @00C, ...) by shortening
+     * the slice - the backing buffer is read-only, so we never write to it. */
+    const char *c = content.data;
+    size_t n = content.len;
     if (
         n >= 4 &&
-        (n == 4 || isspace((unsigned char)content[n - 5])) &&
-        content[n - 4] == '@' &&
-        isalnum((unsigned char)content[n - 3]) &&
-        isalnum((unsigned char)content[n - 2]) &&
-        isalnum((unsigned char)content[n - 1])
+        (n == 4 || isspace((unsigned char)c[n - 5])) &&
+        c[n - 4] == '@' &&
+        isalnum((unsigned char)c[n - 3]) &&
+        isalnum((unsigned char)c[n - 2]) &&
+        isalnum((unsigned char)c[n - 1])
     ) {
         n -= 4;
-        while (n && isspace((unsigned char)content[n - 1])) n--;
-        content[n] = '\0';
+        while (n && isspace((unsigned char)c[n - 1])) n--;
+        content.len = n;
     }
     return content;
 }
 
 /* A divider/banner line: content made of '*' only (plus whitespace). */
-int is_banner(const char *content)
+int is_banner(Line content)
 {
-    for (; *content; content++) {
-        if (*content != '*')
+    for (size_t i = 0; i < content.len; i++) {
+        if (content.data[i] != '*')
             return 0;
     }
     return 1;
@@ -309,33 +310,36 @@ void block_reset(DocBlock *b)
     block_init(b);
 }
 
-void block_append(DocBlock *b, FieldId field, const char *text)
+void block_append(DocBlock *b, FieldId field, Line text)
 {
-    text = skip_ws(text);
+    const char *tend = text.data + text.len;
+    const char *t = skip_ws_n(text.data, tend);
+    size_t tlen = (size_t)(tend - t);
     b->current = field;
-    if (*text == '\0')
+    if (tlen == 0)
         return; /* field opened, content on the next line(s) */
     switch (field) {
     case FIELD_NAME:
-        sb_join(&b->name, text);
+        sb_join_n(&b->name, t, tlen);
         break;
     case FIELD_DESCRIPTION:
-        sb_join(&b->description, text);
+        sb_join_n(&b->description, t, tlen);
         break;
     case FIELD_OUTPUT:
-        sb_join(&b->output, text);
+        sb_join_n(&b->output, t, tlen);
         break;
     case FIELD_INPUT:
-        if (b->prolog && b->inputLines.count > 0 && !strstr(text, " - ")) {
+        if (b->prolog && b->inputLines.count > 0 && !contains_ci(t, tend, " - ")) {
             /* Method Prolog rows wrap the type onto a bare line with no
              * " - " separator: join it to the previous row's description. */
             char **last = &b->inputLines.items[b->inputLines.count - 1];
-            size_t oldLen = strlen(*last), addLen = strlen(text);
-            *last = xrealloc(*last, oldLen + 1 + addLen + 1);
+            size_t oldLen = strlen(*last);
+            *last = xrealloc(*last, oldLen + 1 + tlen + 1);
             (*last)[oldLen] = ' ';
-            memcpy(*last + oldLen + 1, text, addLen + 1);
+            memcpy(*last + oldLen + 1, t, tlen);
+            (*last)[oldLen + 1 + tlen] = '\0';
         } else {
-            sl_push(&b->inputLines, xstrdup(text));
+            sl_push(&b->inputLines, xstrndup(t, tlen));
         }
         break;
     default:
@@ -593,10 +597,10 @@ void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
  * into the pending block. Shared by the single-line comment path and the
  * Method Prolog path of the main parse loop.
  */
-void feed_doc_line(DocBlock *blk, Module *mod, const char *content,
+void feed_doc_line(DocBlock *blk, Module *mod, Line content,
                    int lineNo)
 {
-    const char *rest = NULL;
+    Line rest = { NULL, 0 };
     FieldId field = parse_label(content, &rest);
 
     if (field == FIELD_NONE) {

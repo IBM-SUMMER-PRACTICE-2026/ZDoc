@@ -72,7 +72,7 @@ Module *plx_parse_file(const char *path)
 
     // Iterate line by line
     while ((line = buf_getline(&buf, &pos)).data) {
-        char *content;
+        Line content;
         char *procName;
 
         lineNo++;
@@ -103,9 +103,8 @@ Module *plx_parse_file(const char *path)
                 inProlog = 0;
             } else {
                 content = prolog_content(line);
-                if (*content != '\0') /* padding-only lines are skipped */
+                if (content.len > 0) /* padding-only lines are skipped */
                     feed_doc_line(&blk, mod, content, lineNo);
-                free(content);
             }
             continue;
         }
@@ -121,9 +120,9 @@ Module *plx_parse_file(const char *path)
         }
 
         content = comment_content(line);
-        if (content) {
+        if (content.data) {
             // Padding only
-            if (*content == '\0') {
+            if (content.len == 0) {
                 /* padding-only line: skip, keep current field */
             }
             // Banner line
@@ -135,7 +134,6 @@ Module *plx_parse_file(const char *path)
             else {
                 feed_doc_line(&blk, mod, content, lineNo);
             }
-            free(content);
             continue;
         }
 

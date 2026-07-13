@@ -10,7 +10,8 @@
 /*********************************************/
 int is_prolog_start(Line line);
 int is_prolog_end(Line line);
-char *prolog_content(Line line);
+/* Returns the trimmed interior of a prolog line as a slice into `line`. */
+Line prolog_content(Line line);
 
 
 
@@ -49,15 +50,17 @@ typedef enum {
     FIELD_UNKNOWN /* labeled line, but the label is not recognized */
 } FieldId;
 
-FieldId parse_label(const char *content, const char **rest);
+FieldId parse_label(Line content, Line *rest);
 
 
 
 /*********************************************/
 /*          COMMENT LINE HANDLING            */
 /*********************************************/
-char *comment_content(Line line);
-int is_banner(const char *content);
+/* Returns the trimmed, tag-stripped comment interior as a slice into `line`,
+ * or { NULL, 0 } if the line is not a single-line comment. */
+Line comment_content(Line line);
+int is_banner(Line content);
 
 
 
@@ -76,7 +79,7 @@ typedef struct {
 
 void block_init(DocBlock *b);
 void block_reset(DocBlock *b);
-void block_append(DocBlock *b, FieldId field, const char *text);
+void block_append(DocBlock *b, FieldId field, Line text);
 
 
 
@@ -127,7 +130,7 @@ void block_to_symbol(
 void feed_doc_line(
     DocBlock *blk,
     Module *mod,
-    const char *content,
+    Line content,
     int lineNo
 );
 

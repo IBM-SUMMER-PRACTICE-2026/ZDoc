@@ -4,6 +4,14 @@
 #include <stddef.h>
 #include "../shared/parser_shared.h"
 
+/* A string slice: a pointer into some backing store plus a length, not
+ * NUL-terminated. Used to pass line/content spans without copying. `data` is
+ * NULL to signal "none". */
+typedef struct {
+    char *data;
+    size_t len;
+} Line;
+
 /* Case-insensitive string comparison (full / first n chars). */
 int str_ieq(const char *a, const char *b);
 int strn_ieq(const char *a, const char *b, size_t n);
@@ -23,6 +31,10 @@ int contains_ci(const char *s, const char *end, const char *needle);  /* does ne
 /* Duplicate s[0..n) with both ends trimmed. */
 char *trim_dup(const char *s, size_t n);
 
+/* Like trim_dup but returns a slice into the original s[0..n) - no allocation.
+ * The result stays valid only as long as s does. */
+Line trim_slice(const char *s, size_t n);
+
 /* Collapse whitespace runs to single spaces, in place. */
 char *squeeze_ws(char *s);
 
@@ -37,6 +49,8 @@ void sb_putn(StrBuf *b, const char *s, size_t n);
 void sb_puts(StrBuf *b, const char *s);
 /* Append with a single space separator when the buffer already has text. */
 void sb_join(StrBuf *b, const char *s);
+/* sb_join for a length-delimited (non-NUL-terminated) slice. */
+void sb_join_n(StrBuf *b, const char *s, size_t n);
 /* Hand the accumulated string to the caller and reset the buffer. */
 char *sb_steal(StrBuf *b);
 void sb_free(StrBuf *b);
