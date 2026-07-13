@@ -1,5 +1,5 @@
 CC      = gcc
-CFLAGS  = -std=c11 -Wall -Wextra -I../shared
+CFLAGS  = -O2 -std=c11 -Wall -Wextra -I../shared
 TARGET  = plx_parser
 OBJS    = plx_parser.o str_helpers.o parser_helpers.o plx_parser_demo.o parser_shared_interface.o file_buffer.o
 
