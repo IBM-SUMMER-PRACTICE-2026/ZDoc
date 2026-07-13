@@ -14,10 +14,35 @@
 #include "str_helpers.h"
 #include "plx_parser.h"
 #include "parser_helpers.h"
+#include "../shared/file_buffer.h"
 
 /* ------------------------------------------------------------------ */
 /* File parsing                                                        */
 /* ------------------------------------------------------------------ */
+
+/* fgets-style line reader over an in-memory FileBuffer. Copies the next line -
+ * up to and including its '\n', like fgets - into out as a NUL-terminated
+ * string and advances *pos. Lines longer than the buffer are split to fit
+ * out[0..cap), just as fgets does. A trailing "\r\n" is normalised to "\n" to
+ * mirror text-mode fopen. Returns out, or NULL once the buffer is consumed. */
+static char *buf_getline(const FileBuffer *buf, size_t *pos, char *out, size_t cap)
+{
+    if (cap == 0 || *pos >= buf->len)
+        return NULL;
+
+    size_t o = 0;
+    while (*pos < buf->len && o + 1 < cap) {
+        char c = buf->data[*pos];
+        (*pos)++;
+        if (c == '\r' && *pos < buf->len && buf->data[*pos] == '\n')
+            continue; /* drop the CR of a CRLF; the LF is copied next iteration */
+        out[o++] = c;
+        if (c == '\n')
+            break;
+    }
+    out[o] = '\0';
+    return out;
+}
 
 Module *plx_parse_file(const char *path)
 {
@@ -27,9 +52,12 @@ Module *plx_parse_file(const char *path)
         return NULL;
     }
 
+    FileBuffer buf = read_file_buffer(path);
+
     Module *mod = init_module(path);
     DocBlock blk;
     char line[MAX_LINE];
+    size_t pos = 0;
     int lineNo = 0;
 
     int capturing = 0;
@@ -43,7 +71,7 @@ Module *plx_parse_file(const char *path)
     sb_init(&sig);
 
     // Iterate line by line
-    while (fgets(line, sizeof line, f)) {
+    while (buf_getline(&buf, &pos, line, sizeof line)) {
         char *content;
         char *procName;
 
@@ -147,6 +175,7 @@ Module *plx_parse_file(const char *path)
     }
     module_shrink_to_fit(mod);
 
+    free_file_buffer(&buf);
     fclose(f);
     return mod;
 }
