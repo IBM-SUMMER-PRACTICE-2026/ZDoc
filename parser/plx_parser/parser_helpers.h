@@ -18,8 +18,9 @@ Line prolog_content(Line line);
 /*********************************************/
 /*          PROC STATEMENTS NAMES            */
 /*********************************************/
-char *match_proc_start(Line line);
-char *match_procentry(Line line);
+/* Return the procedure name as a slice into `line`, or { NULL, 0 }. */
+Line match_proc_start(Line line);
+Line match_procentry(Line line);
 
 
 
@@ -122,7 +123,7 @@ void build_input_params(
 void block_to_symbol(
     DocBlock *b,
     Module *mod,
-    const char *procName,
+    Line procName,
     const char *signature,
     int lineNo
 );

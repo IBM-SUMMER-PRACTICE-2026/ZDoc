@@ -55,62 +55,64 @@ Line prolog_content(Line line)
 /*********************************************/
 
 /* Match "<IDENT> : PROC" at the start of a code line; returns the name. */
-char *match_proc_start(Line line)
+Line match_proc_start(Line line)
 {
+    Line none = { NULL, 0 };
     const char *end = line.data + line.len;
     const char *s = skip_ws_n(line.data, end);
     const char *idEnd, *p;
 
     if (s >= end || (!isalpha((unsigned char)*s) && *s != '_'))
-        return NULL;
+        return none;
     p = s;
     while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
         p++;
     idEnd = p;
     p = skip_ws_n(p, end);
     if (p >= end || *p != ':')
-        return NULL;
+        return none;
     p = skip_ws_n(p + 1, end);
     if (!has_prefix_ci(p, end, "PROC"))
-        return NULL;
+        return none;
     if (p + 4 < end && (isalnum((unsigned char)p[4]) || p[4] == '_'))
-        return NULL; /* e.g. PROCESS */
-    return xstrndup(s, (size_t)(idEnd - s));
+        return none; /* e.g. PROCESS */
+    return (Line){ (char *)s, (size_t)(idEnd - s) };
 }
 
 /*
  * Match "?AsaXMac ProcEntry(<IDENT>)" at the start of a code line; returns
- * the heap-allocated name or NULL. Case-insensitive. ProcEnd deliberately
- * does not match.
+ * the name as a slice into `line`, or { NULL, 0 }. Case-insensitive. ProcEnd
+ * deliberately does not match.
  */
-char *match_procentry(Line line)
+Line match_procentry(Line line)
 {
+    Line none = { NULL, 0 };
     const char *end = line.data + line.len;
     const char *s = skip_ws_n(line.data, end);
     const char *idStart, *p, *q;
 
     if (s >= end || *s != '?')
-        return NULL;
+        return none;
     s++;
     if (!has_prefix_ci(s, end, "AsaXMac"))
-        return NULL;
+        return none;
     s += 7;
     if (s >= end || !isspace((unsigned char)*s))
-        return NULL;
+        return none;
     s = skip_ws_n(s, end);
     if (!has_prefix_ci(s, end, "ProcEntry"))
-        return NULL;
+        return none;
     s = skip_ws_n(s + 9, end);
     if (s >= end || *s != '(')
-        return NULL;
+        return none;
     idStart = skip_ws_n(s + 1, end);
     p = idStart;
     while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
         p++;
     q = skip_ws_n(p, end);
     if (p == idStart || q >= end || *q != ')')
-        return NULL;
-    return xstrndup(idStart, (size_t)(p - idStart));
+        return none;
+    return (Line){ (char *)idStart, (size_t)(p - idStart) };
 }
 
 
@@ -550,7 +552,7 @@ void build_input_params(const StrList *lines, Symbol *sym,
  * still used here to cross-check against the doc-comment name and is not
  * stored on the resulting Symbol.
  */
-void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
+void block_to_symbol(DocBlock *b, Module *mod, Line procName,
                      const char *signature, int lineNo)
 {
     Symbol *sym = module_add_symbol(mod);
@@ -568,7 +570,7 @@ void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
     sym->description = sb_steal(&b->description);
     sym->output = sb_steal(&b->output);
 
-    sym->line = (uint32_t)(procName ? lineNo : b->startLine);
+    sym->line = (uint32_t)(procName.data ? lineNo : b->startLine);
     /* PL/X only ever documents procedures - both plain 'NAME: PROC(...)' and
      * '?AsaXMac ProcEntry(NAME)' macro routines normalize to the same kind. */
     sym->type = xstrdup("procedure");
@@ -577,12 +579,15 @@ void block_to_symbol(DocBlock *b, Module *mod, const char *procName,
     build_input_params(&b->inputLines, sym, mod->filename, b->startLine);
 
     /* Cross-check doc name vs. actual procedure name (per convention). */
-    if (procName && sym->name[0] && !str_ieq(sym->name, procName))
+    if (procName.data && sym->name[0] &&
+        !(strlen(sym->name) == procName.len &&
+          strn_ieq(sym->name, procName.data, procName.len)))
         fprintf(stderr,
                 "%s:%d: warning: doc-comment name '%s' does not match "
-                "procedure name '%s'\n",
-                mod->filename, lineNo, sym->name, procName);
-    if (!procName)
+                "procedure name '%.*s'\n",
+                mod->filename, lineNo, sym->name,
+                (int)procName.len, procName.data);
+    if (!procName.data)
         fprintf(stderr,
                 "%s:%d: warning: doc-comment block '%s' is not followed by "
                 "a PROC statement\n",
@@ -616,7 +621,7 @@ void feed_doc_line(DocBlock *blk, Module *mod, Line content,
     } else {
         if (blk->closed) {
             /* new block starts while one is pending: flush it */
-            block_to_symbol(blk, mod, NULL, NULL, lineNo);
+            block_to_symbol(blk, mod, (Line){ NULL, 0 }, NULL, lineNo);
         }
         if (!blk->active)
             blk->startLine = lineNo;

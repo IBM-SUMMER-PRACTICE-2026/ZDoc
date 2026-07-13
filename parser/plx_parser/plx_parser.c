@@ -64,7 +64,7 @@ Module *plx_parse_file(const char *path)
     int inProlog = 0;
     SigState sigState = { 0, 0, 0 };
     StrBuf sig;
-    char *sigProc = NULL;
+    Line sigProc = { NULL, 0 };
     int procLine = 0; /* line the PROC/ProcEntry was matched on */
 
     block_init(&blk);
@@ -73,7 +73,7 @@ Module *plx_parse_file(const char *path)
     // Iterate line by line
     while ((line = buf_getline(&buf, &pos)).data) {
         Line content;
-        char *procName;
+        Line procName;
 
         lineNo++;
 
@@ -84,12 +84,11 @@ Module *plx_parse_file(const char *path)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);
                 else
                     fprintf(stderr,
-                            "%s:%d: note: procedure '%s' has no doc-comment "
+                            "%s:%d: note: procedure '%.*s' has no doc-comment "
                             "block - skipped\n",
-                            path, procLine, sigProc);
+                            path, procLine, (int)sigProc.len, sigProc.data);
                 free(sigText);
-                free(sigProc);
-                sigProc = NULL;
+                sigProc = (Line){ NULL, 0 };
                 capturing = 0;
             }
             continue;
@@ -112,7 +111,7 @@ Module *plx_parse_file(const char *path)
         if (is_prolog_start(line)) {
             if (blk.closed) {
                 /* new block starts while one is pending: flush it */
-                block_to_symbol(&blk, mod, NULL, NULL, lineNo);
+                block_to_symbol(&blk, mod, (Line){ NULL, 0 }, NULL, lineNo);
             }
             inProlog = 1;
             blk.prolog = 1;
@@ -138,9 +137,9 @@ Module *plx_parse_file(const char *path)
         }
 
         procName = match_proc_start(line);
-        if (!procName)
+        if (!procName.data)
             procName = match_procentry(line);
-        if (procName) {
+        if (procName.data) {
             capturing = 1;
             sigState.depth = 0;
             sigState.inComment = 0;
@@ -153,12 +152,11 @@ Module *plx_parse_file(const char *path)
                     block_to_symbol(&blk, mod, sigProc, sigText, procLine);
                 else
                     fprintf(stderr,
-                            "%s:%d: note: procedure '%s' has no doc-comment "
+                            "%s:%d: note: procedure '%.*s' has no doc-comment "
                             "block - skipped\n",
-                            path, procLine, sigProc);
+                            path, procLine, (int)sigProc.len, sigProc.data);
                 free(sigText);
-                free(sigProc);
-                sigProc = NULL;
+                sigProc = (Line){ NULL, 0 };
                 capturing = 0;
             }
         }
@@ -166,9 +164,8 @@ Module *plx_parse_file(const char *path)
     }
 
     if (blk.active)
-        block_to_symbol(&blk, mod, NULL, NULL, lineNo);
+        block_to_symbol(&blk, mod, (Line){ NULL, 0 }, NULL, lineNo);
     if (capturing) {
-        free(sigProc);
         sb_free(&sig);
     }
     module_shrink_to_fit(mod);
