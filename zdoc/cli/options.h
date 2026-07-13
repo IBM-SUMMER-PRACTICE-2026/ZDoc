@@ -6,6 +6,9 @@
 #ifndef ZD_OPTIONS_H
 #define ZD_OPTIONS_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #define ZD_VERSION "0.1.0"
 
 #define ZD_PATH_MAX     1024
@@ -35,13 +38,13 @@ typedef struct {
     char      bob_cli[ZD_PATH_MAX];
     char      bob_args[ZD_ARGS_MAX];
     char      **languages;
-    int       n_languages;
+    size_t    n_languages;
     char      excludes[ZD_MAX_EXCLUDES][ZD_GLOB_MAX];
-    int       n_excludes;
-    int       recursive;
-    int       no_source;
+    size_t    n_excludes;
+    uint8_t   recursive;
+    uint8_t   no_source;
     char      inputs[ZD_MAX_INPUTS][ZD_PATH_MAX];
-    int       n_inputs;
+    size_t    n_inputs;
 } zd_options;
 
 void zd_options_init(zd_options *o);
