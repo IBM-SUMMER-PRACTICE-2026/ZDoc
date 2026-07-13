@@ -18,18 +18,20 @@
  */
 int is_prolog_start(Line line)
 {
-    const char *s = skip_ws(line.data);
-    if (*s != '*' && *s != '/')
+    const char *end = line.data + line.len;
+    const char *s = skip_ws_n(line.data, end);
+    if (s >= end || (*s != '*' && *s != '/'))
         return 0;
-    return str_istr(s, "Start of Method Prolog") != NULL;
+    return contains_ci(s, end, "Start of Method Prolog");
 }
 
 int is_prolog_end(Line line)
 {
-    const char *s = skip_ws(line.data);
-    if (*s != '*' && *s != '/')
+    const char *end = line.data + line.len;
+    const char *s = skip_ws_n(line.data, end);
+    if (s >= end || (*s != '*' && *s != '/'))
         return 0;
-    return str_istr(s, "End of Method Prolog") != NULL;
+    return contains_ci(s, end, "End of Method Prolog");
 }
 
 /*
@@ -38,11 +40,12 @@ int is_prolog_end(Line line)
  */
 char *prolog_content(Line line)
 {
-    const char *s = skip_ws(line.data);
+    const char *end = line.data + line.len;
+    const char *s = skip_ws_n(line.data, end);
 
-    if (*s == '*')
+    if (s < end && *s == '*')
         s++;
-    return trim_dup(s, strlen(s));
+    return trim_dup(s, (size_t)(end - s));
 }
 
 
@@ -54,22 +57,23 @@ char *prolog_content(Line line)
 /* Match "<IDENT> : PROC" at the start of a code line; returns the name. */
 char *match_proc_start(Line line)
 {
-    const char *s = skip_ws(line.data);
+    const char *end = line.data + line.len;
+    const char *s = skip_ws_n(line.data, end);
     const char *idEnd, *p;
 
-    if (!isalpha((unsigned char)*s) && *s != '_')
+    if (s >= end || (!isalpha((unsigned char)*s) && *s != '_'))
         return NULL;
     p = s;
-    while (isalnum((unsigned char)*p) || *p == '_')
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
         p++;
     idEnd = p;
-    p = skip_ws(p);
-    if (*p != ':')
+    p = skip_ws_n(p, end);
+    if (p >= end || *p != ':')
         return NULL;
-    p = skip_ws(p + 1);
-    if (!strn_ieq(p, "PROC", 4))
+    p = skip_ws_n(p + 1, end);
+    if (!has_prefix_ci(p, end, "PROC"))
         return NULL;
-    if (isalnum((unsigned char)p[4]) || p[4] == '_')
+    if (p + 4 < end && (isalnum((unsigned char)p[4]) || p[4] == '_'))
         return NULL; /* e.g. PROCESS */
     return xstrndup(s, (size_t)(idEnd - s));
 }
@@ -81,28 +85,30 @@ char *match_proc_start(Line line)
  */
 char *match_procentry(Line line)
 {
-    const char *s = skip_ws(line.data);
-    const char *idStart, *p;
+    const char *end = line.data + line.len;
+    const char *s = skip_ws_n(line.data, end);
+    const char *idStart, *p, *q;
 
-    if (*s != '?')
+    if (s >= end || *s != '?')
         return NULL;
     s++;
-    if (!strn_ieq(s, "AsaXMac", 7))
+    if (!has_prefix_ci(s, end, "AsaXMac"))
         return NULL;
     s += 7;
-    if (!isspace((unsigned char)*s))
+    if (s >= end || !isspace((unsigned char)*s))
         return NULL;
-    s = skip_ws(s);
-    if (!strn_ieq(s, "ProcEntry", 9))
+    s = skip_ws_n(s, end);
+    if (!has_prefix_ci(s, end, "ProcEntry"))
         return NULL;
-    s = skip_ws(s + 9);
-    if (*s != '(')
+    s = skip_ws_n(s + 9, end);
+    if (s >= end || *s != '(')
         return NULL;
-    idStart = skip_ws(s + 1);
+    idStart = skip_ws_n(s + 1, end);
     p = idStart;
-    while (isalnum((unsigned char)*p) || *p == '_')
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
         p++;
-    if (p == idStart || *skip_ws(p) != ')')
+    q = skip_ws_n(p, end);
+    if (p == idStart || q >= end || *q != ')')
         return NULL;
     return xstrndup(idStart, (size_t)(p - idStart));
 }
@@ -115,12 +121,13 @@ char *match_procentry(Line line)
 int sig_consume(StrBuf *sig, Line line, SigState *st)
 {
     const char *p = line.data;
+    const char *end = line.data + line.len;
 
     if (sig->len)
         sb_puts(sig, " ");
-    while (*p) {
+    while (p < end) {
         if (st->inComment) {
-            if (p[0] == '*' && p[1] == '/') {
+            if (p + 1 < end && p[0] == '*' && p[1] == '/') {
                 st->inComment = 0;
                 p += 2;
             } else {
@@ -135,7 +142,7 @@ int sig_consume(StrBuf *sig, Line line, SigState *st)
             p++;
             continue;
         }
-        if (p[0] == '/' && p[1] == '*') {
+        if (p + 1 < end && p[0] == '/' && p[1] == '*') {
             st->inComment = 1;
             p += 2;
             continue;
@@ -227,11 +234,12 @@ FieldId parse_label(const char *content, const char **rest)
  */
 char *comment_content(Line line)
 {
-    const char *s = skip_ws(line.data);
+    const char *bufEnd = line.data + line.len;
+    const char *s = skip_ws_n(line.data, bufEnd);
 
-    if(s[0] != '/' || s[1] != '*') return NULL;
+    if (bufEnd - s < 2 || s[0] != '/' || s[1] != '*') return NULL;
 
-    size_t len = strlen(s);
+    size_t len = (size_t)(bufEnd - s);
 
     char *content;
     size_t n;

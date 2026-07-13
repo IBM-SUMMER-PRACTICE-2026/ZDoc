@@ -55,6 +55,38 @@ const char *skip_ws(const char *s)
     return s;
 }
 
+const char *skip_ws_n(const char *s, const char *end)
+{
+    while (s < end && isspace((unsigned char)*s))
+        s++;
+    return s;
+}
+
+int has_prefix_ci(const char *s, const char *end, const char *lit)
+{
+    for (; *lit; s++, lit++) {
+        if (s >= end || tolower((unsigned char)*s) != tolower((unsigned char)*lit))
+            return 0;
+    }
+    return 1;
+}
+
+int contains_ci(const char *s, const char *end, const char *needle)
+{
+    if (!*needle)
+        return 1;
+    for (; s < end; s++) {
+        const char *a = s, *b = needle;
+        while (a < end && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+            a++;
+            b++;
+        }
+        if (!*b)
+            return 1;
+    }
+    return 0;
+}
+
 char *trim_dup(const char *s, size_t n)
 {
     const char *end = s + n;

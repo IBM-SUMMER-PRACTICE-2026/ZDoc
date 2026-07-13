@@ -13,6 +13,13 @@ const char *str_istr(const char *hay, const char *needle);
 
 const char *skip_ws(const char *s);
 
+/* Length-bounded scanners for parsing directly out of the (non-NUL-terminated)
+ * file buffer: they never read at or past `end`. The `lit`/`needle` arguments
+ * are ordinary NUL-terminated string literals, not buffer data. */
+const char *skip_ws_n(const char *s, const char *end);
+int has_prefix_ci(const char *s, const char *end, const char *lit);   /* does [s,end) begin with lit? */
+int contains_ci(const char *s, const char *end, const char *needle);  /* does needle occur within [s,end)? */
+
 /* Duplicate s[0..n) with both ends trimmed. */
 char *trim_dup(const char *s, size_t n);
 
