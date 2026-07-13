@@ -1,0 +1,28 @@
+# Built binary (root .gitignore backstops this via zdoc-*-renderer / *.exe)
+zdoc-html-renderer
+zdoc-html-renderer.exe
+render_test
+*.o
+
+# Local test render output
+out/
+out2/
+example-output/
+
+# Test sources + fixtures - matches the same convention already used in
+# extractor/doc_extractor and renderer/md_renderer (tests stay local, not
+# tracked).
+tests/
+
+# Superseded now that html_render() takes doc_extractor's DxModel directly
+# (no JSON, no subprocess) - kept on disk, not tracked, in case revisited:
+#  - json.c/h: the JSON reader, no longer needed at all.
+#  - html_model.c/h: the JSON-parsing model layer; DxModel (from
+#    doc_extractor.h) replaces it entirely.
+#  - main.c: the old CLI driver (./zdoc-html-renderer file.json).
+#    html_renderer is a library now - see tests/render_test.c for how it's
+#    exercised.
+#  - sample.json, data/*.json, run_tests.sh: the old JSON fixtures and their
+#    test runner; tests/render_test.c + tests/check.sh build the same kind
+#    of content as C structures instead.
+_disabled/

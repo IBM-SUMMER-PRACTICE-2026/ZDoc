@@ -1,0 +1,24 @@
+*.o
+dx_build_test
+out.json
+tests/
+
+# Superseded code, quarantined here for now (kept on disk, not tracked, in
+# case any of it gets revisited):
+#  - thread_pool.c/bin_group.c: the chunking/thread-pool dispatch.
+#  - child_parser.c/plx_link.c/parser_link.c: every subprocess+JSON and
+#    linked-in-parser invocation attempt. doc_extractor no longer walks or
+#    parses at all - the daemon (zdoc/zdoc_deamon.c, see
+#    16-feature-global-parser-header-file) owns that entirely and hands
+#    doc_extractor an already-parsed array (see doc_extractor.h). None of
+#    doc_extractor's own code depends on anything under parser/.
+#  - path_build.c: disk-path resolution, no longer needed since
+#    doc_extractor doesn't open files - only module_tree's own
+#    modtree_file_path (relative-path reconstruction, not disk I/O) is used,
+#    to match parsed modules back to files.
+#  - json_read.c/h: the JSON *reader* half is dead along with the above (no
+#    more subprocess replies to parse). xmalloc/xrealloc were split out into
+#    src/xalloc.c/h since those are still used everywhere.
+#  - main.c: doc_extractor is a library now, not a standalone CLI - see
+#    tests/dx_build_test.c for how it's exercised instead.
+src/_disabled/
