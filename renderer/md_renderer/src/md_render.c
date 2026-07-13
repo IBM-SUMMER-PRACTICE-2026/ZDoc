@@ -9,6 +9,7 @@
 #include "md_renderer.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -48,15 +49,23 @@ static const char *language_for_name(const char *filename) {
     return NULL;
 }
 
-/* Matches file index i back to the module that parsed it, via pathIndex -
- * the file table index the daemon stamped onto the module while parsing,
- * not a string comparison. Returns NULL if no module matched (parsing
- * failed, was skipped, or hasn't run yet). */
-static const Module *module_for_file(const Module *modules, size_t module_count, size_t i) {
-    if(i >= module_count) return NULL;
-    const Module *mod = &modules[i];
-    if(!mod->filename || mod->pathIndex != (int)i) return NULL;
-    return mod;
+/* Maps file_index -> the module that parsed it, keyed by each module's own
+ * pathIndex (the file table index the daemon stamped onto it while
+ * parsing) rather than by assuming modules[i] corresponds to files[i]. That
+ * assumption held only because of how the daemon currently happens to fill
+ * the array; this index doesn't depend on modules being ordered, dense, or
+ * the same length as files->count. Slots for files with no matching module
+ * (parsing failed, was skipped, or hasn't run yet) stay NULL. */
+static const Module **build_module_index(const Module *modules, size_t module_count, size_t file_count) {
+    const Module **by_file = malloc(file_count * sizeof *by_file);
+    if(!by_file) return NULL;
+    for(size_t i = 0; i < file_count; i++) by_file[i] = NULL;
+    for(size_t i = 0; i < module_count; i++) {
+        int pi = modules[i].pathIndex;
+        if(modules[i].filename && pi >= 0 && (size_t)pi < file_count)
+            by_file[pi] = &modules[i];
+    }
+    return by_file;
 }
 
 /* Best-effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -134,11 +143,11 @@ static void write_symbol(FILE *o, const Symbol *s, const char *language) {
 }
 
 static int write_module_file(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
-                              const Module *modules, size_t module_count,
+                              const Module **by_file,
                               size_t file_index, const char *out_dir) {
     const modtree_file_t *f = &files->files[file_index];
     const char *language = f->name ? language_for_name(f->name) : NULL;
-    const Module *mod = module_for_file(modules, module_count, file_index);
+    const Module *mod = by_file[file_index];
 
     char relpath[900];
     if(md_output_relpath(dirs, files, file_index, relpath, sizeof relpath) != 0) return -1;
@@ -205,8 +214,16 @@ int md_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files
               const Module *modules, size_t module_count,
               const char *out_dir, const char *title) {
     mkdir_p(out_dir);
+
+    const Module **by_file = build_module_index(modules, module_count, files->count);
+    if(!by_file) return -1;
+
+    int rc = 0;
     for(size_t i = 0; i < files->count; i++) {
-        if(write_module_file(dirs, files, modules, module_count, i, out_dir) != 0) return -1;
+        if(write_module_file(dirs, files, by_file, i, out_dir) != 0) { rc = -1; break; }
     }
+
+    free(by_file);
+    if(rc != 0) return rc;
     return write_index(dirs, files, out_dir, title);
 }

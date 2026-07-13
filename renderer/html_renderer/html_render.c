@@ -66,15 +66,22 @@ static const char *language_for_name(const char *filename) {
     return NULL;
 }
 
-/* Matches file index i back to the module that parsed it, via pathIndex -
- * the file table index the daemon stamped onto the module while parsing,
- * not a string comparison. Returns NULL if no module matched (parsing
- * failed, was skipped, or hasn't run yet). */
-static const Module *module_for_file(const Module *modules, size_t module_count, size_t i) {
-    if(i >= module_count) return NULL;
-    const Module *mod = &modules[i];
-    if(!mod->filename || mod->pathIndex != (int)i) return NULL;
-    return mod;
+/* Maps file_index -> the module that parsed it, keyed by each module's own
+ * pathIndex (the file table index the daemon stamped onto it while
+ * parsing) rather than by assuming modules[i] corresponds to files[i]. That
+ * assumption held only because of how the daemon currently happens to fill
+ * the array; this index doesn't depend on modules being ordered, dense, or
+ * the same length as files->count. Slots for files with no matching module
+ * (parsing failed, was skipped, or hasn't run yet) stay NULL. */
+static const Module **build_module_index(const Module *modules, size_t module_count, size_t file_count) {
+    const Module **by_file = xmalloc(file_count * sizeof *by_file);
+    for(size_t i = 0; i < file_count; i++) by_file[i] = NULL;
+    for(size_t i = 0; i < module_count; i++) {
+        int pi = modules[i].pathIndex;
+        if(modules[i].filename && pi >= 0 && (size_t)pi < file_count)
+            by_file[pi] = &modules[i];
+    }
+    return by_file;
 }
 
 /* Best effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -241,10 +248,10 @@ static void render_symbol(FILE *o, const Symbol *s, const char *language) {
 }
 //Renders a file and its symbols. The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.
 static void render_file(FILE *o, const modtree_file_table_t *files,
-                         const Module *modules, size_t module_count, size_t f) {
+                         const Module **by_file, size_t f) {
     const modtree_file_t *file = &files->files[f];
     const char *language = file->name ? language_for_name(file->name) : NULL;
-    const Module *mod = module_for_file(modules, module_count, f);
+    const Module *mod = by_file[f];
 
     fputs("<li><details class=\"file\"><summary>", o);
     put_escaped(o, file->name ? file->name : "(unnamed)");
@@ -261,16 +268,15 @@ static void render_file(FILE *o, const modtree_file_table_t *files,
 /*Renders a directory and its children recursively. The caller is responsible for
  wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
 static void render_dir(FILE *o, const adjacency_t *a, const modtree_dir_table_t *dirs,
-                        const modtree_file_table_t *files, const Module *modules,
-                        size_t module_count, int d) {
+                        const modtree_file_table_t *files, const Module **by_file, int d) {
     fputs("<li><details class=\"dir\" open><summary>", o);
     put_escaped(o, dirs->dirs[d].name ? dirs->dirs[d].name : "(unnamed)");
     fputs("/</summary><ul>\n", o);
 
     for(int c = a->dir_child[d]; c != -1; c = a->dir_sib[c])
-        render_dir(o, a, dirs, files, modules, module_count, c);
+        render_dir(o, a, dirs, files, by_file, c);
     for(int f = a->file_child[d]; f != -1; f = a->file_sib[f])
-        render_file(o, files, modules, module_count, (size_t)f);
+        render_file(o, files, by_file, (size_t)f);
 
     fputs("</ul></details></li>\n", o);
 }
@@ -323,9 +329,11 @@ int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *fil
     adjacency_t a;
     adjacency_build(&a, dirs, files);
 
+    const Module **by_file = build_module_index(modules, module_count, files->count);
+
     int has_diagram = 0;
     for(size_t i = 0; i < files->count && !has_diagram; i++) {
-        const Module *mod = module_for_file(modules, module_count, i);
+        const Module *mod = by_file[i];
         if(!mod) continue;
         for(int k = 0; k < mod->symbolCount; k++)
             if(mod->symbols[k].diagram && mod->symbols[k].diagram[0]) { has_diagram = 1; break; }
@@ -344,9 +352,9 @@ int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *fil
     fputs("</h1>\n<ul class=\"tree\">\n", o);
 
     for(int d = a.dir_root; d != -1; d = a.dir_sib[d])
-        render_dir(o, &a, dirs, files, modules, module_count, d);
+        render_dir(o, &a, dirs, files, by_file, d);
     for(int f = a.file_root; f != -1; f = a.file_sib[f])
-        render_file(o, files, modules, module_count, (size_t)f);
+        render_file(o, files, by_file, (size_t)f);
 
     fputs("</ul>\n", o);
     if(has_diagram) {
@@ -357,6 +365,7 @@ int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *fil
     fputs("</body>\n</html>\n", o);
 
     adjacency_free(&a);
+    free(by_file);
     int rc = ferror(o) ? -1 : 0;
     if(fclose(o) != 0) rc = -1;
     return rc;
