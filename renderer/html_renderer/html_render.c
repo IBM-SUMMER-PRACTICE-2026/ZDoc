@@ -1,12 +1,13 @@
 /*
-  Walks a DxModel and writes it out as a single self-contained index.html:
-  nested <details>/<summary> nodes for directories and files, with
-  per-symbol sections (signature, brief, parameters, returns, notes, block
-  diagram, cross-references). No JSON, no parsing - takes the model
-  directly, built elsewhere by doc_extractor.
+  Walks the module_tree tables and a parsed Module array directly and
+  writes the result out as a single self-contained index.html: nested
+  <details>/<summary> nodes for directories and files, with per-symbol
+  documentation sections (signature, brief, parameters, returns, notes,
+  block diagram). No JSON, no parsing, no intermediate model - matching a
+  file to its parsed module and deriving its language happens right here
+  instead of in a separate doc_extractor stage.
  */
 #include "html_renderer.h"
-#include "../../extractor/doc_extractor/src/xalloc.h" /* xmalloc */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,58 @@
 #define MKDIR(path) mkdir(path, 0755)
 #define IS_SEP(c) ((c) == '/')
 #endif
+
+/* Error-checked allocation - exits the process on OOM. Kept local (rather
+ * than reused from doc_extractor's xalloc.h) since this renderer no longer
+ * depends on anything under extractor/doc_extractor/src/. */
+static void *xmalloc(size_t n) {
+    void *p = malloc(n ? n : 1);
+    if(!p) {
+        fprintf(stderr, "zdoc-html-renderer: out of memory\n");
+        exit(1);
+    }
+    return p;
+}
+
+/* Language is derived from the file's own extension, independently of
+ * whether a parsed module matched it - a tiny local table, not tied to any
+ * parser binary or source. Duplicated in md_renderer: both renderers need
+ * this same small lookup, and there's no shared stage left to put it in
+ * once, now that doc_extractor is gone. */
+typedef struct { const char *ext; const char *language; } LangEntry;
+
+static const LangEntry LANGUAGES[] = {
+    { ".java", "java" },
+    { ".c",    "c" },
+    { ".h",    "c" },
+    { ".cpp",  "cpp" },
+    { ".cxx",  "cpp" },
+    { ".cc",   "cpp" },
+    { ".hpp",  "cpp" },
+    { ".plx",  "plx" },
+    { ".pls",  "plx" },
+    { ".plas", "plas" },
+};
+#define LANGUAGE_COUNT (sizeof LANGUAGES / sizeof *LANGUAGES)
+
+static const char *language_for_name(const char *filename) {
+    const char *dot = strrchr(filename, '.');
+    if(!dot) return NULL;
+    for(size_t i = 0; i < LANGUAGE_COUNT; i++)
+        if(strcmp(dot, LANGUAGES[i].ext) == 0) return LANGUAGES[i].language;
+    return NULL;
+}
+
+/* Matches file index i back to the module that parsed it, via pathIndex -
+ * the file table index the daemon stamped onto the module while parsing,
+ * not a string comparison. Returns NULL if no module matched (parsing
+ * failed, was skipped, or hasn't run yet). */
+static const Module *module_for_file(const Module *modules, size_t module_count, size_t i) {
+    if(i >= module_count) return NULL;
+    const Module *mod = &modules[i];
+    if(!mod->filename || mod->pathIndex != (int)i) return NULL;
+    return mod;
+}
 
 /* Best effort recursive mkdir - ignores failures (EEXIST is the common,
   expected one); a genuine problem surfaces later when index.html itself
@@ -61,8 +114,8 @@ static void put_escaped(FILE *out, const char *s) {
     }
 }
 
-/* Child lists threaded through the model's parent links, so rendering can
-  walk the tree top-down without rescanning both tables at every node:
+/* Child lists threaded through the tree's parent links, so rendering can
+  walk it top-down without rescanning both tables at every node:
     dir_child[d]  - first child directory of d, -1 if none
     dir_sib[d]    - next sibling directory of d
     file_child[d] - first file in directory d
@@ -73,25 +126,26 @@ typedef struct {
     int *dir_child, *dir_sib, *file_child, *file_sib;
     int dir_root, file_root;
 } adjacency_t;
-//Builds the adjacency table from the model's parent links. The table is stack-allocated by the caller, and its arrays are heap-allocated here.
-static void adjacency_build(adjacency_t *a, const DxModel *m) {
-    a->dir_child  = xmalloc(m->dir_count * sizeof(int));
-    a->dir_sib    = xmalloc(m->dir_count * sizeof(int));
-    a->file_child = xmalloc(m->dir_count * sizeof(int));
-    a->file_sib   = xmalloc(m->file_count * sizeof(int));
+//Builds the adjacency table from the tables' parent links. The table is stack-allocated by the caller, and its arrays are heap-allocated here.
+static void adjacency_build(adjacency_t *a, const modtree_dir_table_t *dirs,
+                             const modtree_file_table_t *files) {
+    a->dir_child  = xmalloc(dirs->count * sizeof(int));
+    a->dir_sib    = xmalloc(dirs->count * sizeof(int));
+    a->file_child = xmalloc(dirs->count * sizeof(int));
+    a->file_sib   = xmalloc(files->count * sizeof(int));
     a->dir_root = a->file_root = -1;
 
-    for(size_t i = 0; i < m->dir_count; i++) {
+    for(size_t i = 0; i < dirs->count; i++) {
         a->dir_child[i] = -1;
         a->file_child[i] = -1;
     }
 
-    /* Reverse passes, so each child list comes out in table order. The JSON
-     * is external input: an out-of-range or self-referencing parent index is
-     * demoted to a root instead of being trusted. */
-    for(size_t i = m->dir_count; i-- > 0;) {
-        int p = m->dirs[i].parent_index;
-        if(p < 0 || (size_t)p >= m->dir_count || (size_t)p == i) {
+    /* Reverse passes, so each child list comes out in table order. An
+     * out-of-range or self-referencing parent index is demoted to a root
+     * instead of being trusted. */
+    for(size_t i = dirs->count; i-- > 0;) {
+        int p = dirs->dirs[i].parent_index;
+        if(p < 0 || (size_t)p >= dirs->count || (size_t)p == i) {
             a->dir_sib[i] = a->dir_root;
             a->dir_root = (int)i;
         } else {
@@ -100,9 +154,9 @@ static void adjacency_build(adjacency_t *a, const DxModel *m) {
         }
     }
 
-    for(size_t i = m->file_count; i-- > 0;) {
-        int p = m->files[i].parent_dir_index;
-        if(p < 0 || (size_t)p >= m->dir_count) {
+    for(size_t i = files->count; i-- > 0;) {
+        int p = files->files[i].parent_dir_index;
+        if(p < 0 || (size_t)p >= dirs->count) {
             a->file_sib[i] = a->file_root;
             a->file_root = (int)i;
         } else {
@@ -119,13 +173,13 @@ static void adjacency_free(adjacency_t *a) {
     free(a->file_sib);
 }
 
-/*Renders a single symbol's documentation section. 
+/*Renders a single symbol's documentation section.
 The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
-static void render_symbol(FILE *o, const DxSymbol *s, const char *language) {
+static void render_symbol(FILE *o, const Symbol *s, const char *language) {
     fputs("<details class=\"sym\"", o);
     if(s->name && s->name[0]) {
-        /* Anchor target for cross-reference links; refs address symbols by
-          name, so duplicate names resolve to their first occurrence. */
+        /* Anchor target - kept even without cross-reference links, so a
+          direct #sym-NAME URL still works. */
         fputs(" id=\"sym-", o);
         put_escaped(o, s->name);
         fputc('"', o);
@@ -133,9 +187,9 @@ static void render_symbol(FILE *o, const DxSymbol *s, const char *language) {
     fputs("><summary><code>", o);
     put_escaped(o, s->name ? s->name : "(unnamed)");
     fputs("</code>", o);
-    if(s->brief && s->brief[0]) {
+    if(s->description && s->description[0]) {
         fputs(" <span class=\"brief\">— ", o);
-        put_escaped(o, s->brief);
+        put_escaped(o, s->description);
         fputs("</span>", o);
     }
     fputs("</summary>\n", o);
@@ -150,22 +204,22 @@ static void render_symbol(FILE *o, const DxSymbol *s, const char *language) {
     put_escaped(o, s->signature);
     fputs("</code></pre>\n", o);
 
-    if(s->param_count > 0) {
+    if(s->inputCount > 0) {
         fputs("<p class=\"h\">Parameters</p>\n"
               "<table><tr><th>Name</th><th>Description</th></tr>\n", o);
-        for(size_t i = 0; i < s->param_count; i++) {
+        for(int i = 0; i < s->inputCount; i++) {
             fputs("<tr><td><code>", o);
-            put_escaped(o, s->params[i].name);
+            put_escaped(o, s->input[i].name);
             fputs("</code></td><td>", o);
-            put_escaped(o, s->params[i].desc);
+            put_escaped(o, s->input[i].description);
             fputs("</td></tr>\n", o);
         }
         fputs("</table>\n", o);
     }
 
-    if(s->returns && s->returns[0]) {
+    if(s->output && s->output[0]) {
         fputs("<p class=\"h\">Returns</p>\n<p>", o);
-        put_escaped(o, s->returns);
+        put_escaped(o, s->output);
         fputs("</p>\n", o);
     }
     if(s->notes && s->notes[0]) {
@@ -183,46 +237,40 @@ static void render_symbol(FILE *o, const DxSymbol *s, const char *language) {
         put_escaped(o, s->diagram);
         fputs("</pre>\n", o);
     }
-    if(s->ref_count > 0) {
-        fputs("<p class=\"h\">Cross-references</p>\n<p class=\"xrefs\">", o);
-        for(size_t i = 0; i < s->ref_count; i++) {
-            if(i) fputs(", ", o);
-            fputs("<a href=\"#sym-", o);
-            put_escaped(o, s->refs[i]);
-            fputs("\"><code>", o);
-            put_escaped(o, s->refs[i]);
-            fputs("</code></a>", o);
-        }
-        fputs("</p>\n", o);
-    }
     fputs("</details>\n", o);
 }
 //Renders a file and its symbols. The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.
-static void render_file(FILE *o, const DxModel *m, size_t f) {
-    const DxFile *file = &m->files[f];
+static void render_file(FILE *o, const modtree_file_table_t *files,
+                         const Module *modules, size_t module_count, size_t f) {
+    const modtree_file_t *file = &files->files[f];
+    const char *language = file->name ? language_for_name(file->name) : NULL;
+    const Module *mod = module_for_file(modules, module_count, f);
+
     fputs("<li><details class=\"file\"><summary>", o);
     put_escaped(o, file->name ? file->name : "(unnamed)");
     fputs("</summary>\n", o);
 
-    if(file->error)
+    if(!mod)
         fputs("<p class=\"error\">Parser failed for this file — no documentation extracted.</p>\n", o);
-    else if(file->symbol_count == 0)
+    else if(mod->symbolCount == 0)
         fputs("<p class=\"empty\">No documented symbols.</p>\n", o);
-    for(size_t k = 0; k < file->symbol_count; k++)
-        render_symbol(o, &file->symbols[k], file->language);
+    if(mod)
+        for(int k = 0; k < mod->symbolCount; k++) render_symbol(o, &mod->symbols[k], language);
     fputs("</details></li>\n", o);
 }
 /*Renders a directory and its children recursively. The caller is responsible for
  wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
-static void render_dir(FILE *o, const adjacency_t *a, const DxModel *m, int d) {
+static void render_dir(FILE *o, const adjacency_t *a, const modtree_dir_table_t *dirs,
+                        const modtree_file_table_t *files, const Module *modules,
+                        size_t module_count, int d) {
     fputs("<li><details class=\"dir\" open><summary>", o);
-    put_escaped(o, m->dirs[d].name ? m->dirs[d].name : "(unnamed)");
+    put_escaped(o, dirs->dirs[d].name ? dirs->dirs[d].name : "(unnamed)");
     fputs("/</summary><ul>\n", o);
 
     for(int c = a->dir_child[d]; c != -1; c = a->dir_sib[c])
-        render_dir(o, a, m, c);
+        render_dir(o, a, dirs, files, modules, module_count, c);
     for(int f = a->file_child[d]; f != -1; f = a->file_sib[f])
-        render_file(o, m, (size_t)f);
+        render_file(o, files, modules, module_count, (size_t)f);
 
     fputs("</ul></details></li>\n", o);
 }
@@ -246,18 +294,7 @@ static const char CSS[] =
     "table{border-collapse:collapse;margin:.2rem 0}\n"
     "th,td{border:1px solid #ccc;padding:.25rem .6rem;text-align:left}\n"
     "th{background:#f6f6f6}\n"
-    "pre.mermaid{background:#fff}\n"
-    ".xrefs a{color:#0645ad}\n";
-
-/* Opens every <details> ancestor of the element the URL fragment points at,
-  so cross-reference links land on a visible symbol. Embedded, no external
-  dependencies. */
-static const char REVEAL_JS[] =
-    "(function(){function reveal(){var h=location.hash;if(!h)return;\n"
-    "var el=document.getElementById(decodeURIComponent(h.slice(1)));if(!el)return;\n"
-    "for(var d=el;d;d=d.parentElement)if(d.tagName==='DETAILS')d.open=true;\n"
-    "el.scrollIntoView();}\n"
-    "window.addEventListener('hashchange',reveal);reveal();})();\n";
+    "pre.mermaid{background:#fff}\n";
 
 /* Mermaid runs per-diagram when its enclosing <details> is opened - rendering
   inside a closed (hidden) node would come out zero-sized. AI Assisted mode
@@ -272,8 +309,10 @@ static const char MERMAID_JS[] =
     "d.addEventListener('toggle',function(){if(d.open)run(d);});});\n"
     "run(document);\n";
 
-//Renders the whole model as one self-contained out_dir/index.html (embedded CSS; Mermaid JS is pulled in only when the model carries block diagrams).
-int html_render(const DxModel *m, const char *out_dir, const char *title) {
+//Renders the whole tree as one self-contained out_dir/index.html (embedded CSS; Mermaid JS is pulled in only when the model carries block diagrams).
+int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                 const Module *modules, size_t module_count,
+                 const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
     char path[1200];
@@ -282,15 +321,14 @@ int html_render(const DxModel *m, const char *out_dir, const char *title) {
     if(!o) return -1;
 
     adjacency_t a;
-    adjacency_build(&a, m);
+    adjacency_build(&a, dirs, files);
 
-    int has_diagram = 0, has_refs = 0;
-    for(size_t i = 0; i < m->file_count && !(has_diagram && has_refs); i++) {
-        for(size_t k = 0; k < m->files[i].symbol_count; k++) {
-            const DxSymbol *s = &m->files[i].symbols[k];
-            if(s->diagram && s->diagram[0]) has_diagram = 1;
-            if(s->ref_count > 0) has_refs = 1;
-        }
+    int has_diagram = 0;
+    for(size_t i = 0; i < files->count && !has_diagram; i++) {
+        const Module *mod = module_for_file(modules, module_count, i);
+        if(!mod) continue;
+        for(int k = 0; k < mod->symbolCount; k++)
+            if(mod->symbols[k].diagram && mod->symbols[k].diagram[0]) { has_diagram = 1; break; }
     }
 
     const char *t = (title && title[0]) ? title : "Documentation";
@@ -306,16 +344,11 @@ int html_render(const DxModel *m, const char *out_dir, const char *title) {
     fputs("</h1>\n<ul class=\"tree\">\n", o);
 
     for(int d = a.dir_root; d != -1; d = a.dir_sib[d])
-        render_dir(o, &a, m, d);
+        render_dir(o, &a, dirs, files, modules, module_count, d);
     for(int f = a.file_root; f != -1; f = a.file_sib[f])
-        render_file(o, m, (size_t)f);
+        render_file(o, files, modules, module_count, (size_t)f);
 
     fputs("</ul>\n", o);
-    if(has_refs) {
-        fputs("<script>\n", o);
-        fputs(REVEAL_JS, o);
-        fputs("</script>\n", o);
-    }
     if(has_diagram) {
         fputs("<script type=\"module\">\n", o);
         fputs(MERMAID_JS, o);
