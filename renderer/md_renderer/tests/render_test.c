@@ -31,7 +31,7 @@ static void test_md_dir_path_root(void) {
     DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
 
     char out[64];
-    assert(md_dir_path(&m, -1, out, sizeof out));
+    assert(md_dir_path(&m, -1, out, sizeof out) == 0);
     assert(strcmp(out, "") == 0);
 
     printf("test_md_dir_path_root passed\n");
@@ -46,7 +46,7 @@ static void test_md_dir_path_nested(void) {
     DxModel m = {.dirs = dirs, .dir_count = 2, .files =NULL, .file_count = 0};
 
     char out[64];
-    assert(md_dir_path(&m, 1, out, sizeof out));
+    assert(md_dir_path(&m, 1, out, sizeof out) == 0);
     assert(strcmp(out, "src/util") == 0);
 
     printf("test_md_dir_nested passed\n");
@@ -217,6 +217,142 @@ static void test_index_tree(const char *out_dir) {
     printf("test_index_tree passed\n");
 }
 
+//A destination buffer too small for md_file_path's reconstructed path fails cleanly instead of truncating or overflowing
+static void test_md_file_path_buffer_too_small(void) {
+    DxDir dirs[] = {
+        {.name = "src", .parent_index = -1},
+        {.name = "util", .parent_index = 0},
+    };
+    DxFile files[] = {
+        {.name = "Helper.java", .parent_dir_index = 1, .language = "java",
+         .symbols = NULL, .symbol_count = 0, .error = 0},
+    };
+    DxModel m = {.dirs = dirs, .dir_count = 2, .files = files, .file_count = 1};
+
+    char out[10]; // "src/util/Helper.java" needs 22 bytes
+    assert(md_file_path(&m, 0, out, sizeof out) == -1);
+
+    printf("test_md_file_path_buffer_too_small passed\n");
+}
+
+//A NULL title falls back to the default "Documentation" heading in index.md
+static void test_md_default_title(const char *out_dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/default_title", out_dir);
+
+    DxDir dirs[] = { {.name = "src", .parent_index = -1} };
+    DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
+
+    assert(md_render(&m, path, NULL) == 0);
+
+    char index_path[600];
+    snprintf(index_path, sizeof index_path, "%s/index.md", path);
+    char *idx = read_file(index_path);
+
+    assert(strstr(idx, "# Documentation\n\n") != NULL);
+
+    free(idx);
+    printf("test_md_default_title passed\n");
+}
+
+/*write_symbol does no escaping - backticks and pipes in a name, brief or
+signature pass straight through into the Markdown. This documents current
+behaviour (a name/signature containing "```" could break a code fence);
+if escaping is added later this test's assertions need updating.*/
+static void test_md_raw_passthrough(const char *out_dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/raw_passthrough", out_dir);
+
+    DxSymbol symbols[] = {
+        {
+            .kind = "function", .line = 1, .name = "weird`name",
+            .signature = "void f() // has a ` backtick and a | pipe",
+            .brief = "uses `code` and | pipes",
+            .params = NULL, .param_count = 0,
+            .returns = NULL, .notes = NULL, .diagram = NULL,
+            .refs = NULL, .ref_count = 0,
+        },
+    };
+    DxDir dirs[] = { {.name = "src", .parent_index = -1} };
+    DxFile files[] = {
+        {.name = "Weird.c", .parent_dir_index = 0, .language = "c",
+         .symbols = symbols, .symbol_count = 1, .error = 0},
+    };
+    DxModel m = {.dirs = dirs, .dir_count = 1, .files = files, .file_count = 1};
+
+    assert(md_render(&m, path, "Raw") == 0);
+
+    char module_path[600];
+    snprintf(module_path, sizeof module_path, "%s/src/Weird.md", path);
+    char *md = read_file(module_path);
+
+    assert(strstr(md, "weird`name") != NULL);
+    assert(strstr(md, "uses `code` and | pipes") != NULL);
+    assert(strstr(md, "has a ` backtick and a | pipe") != NULL);
+
+    free(md);
+    printf("test_md_raw_passthrough passed\n");
+}
+
+/*md_render has no notion of diagrams or cross-references - a symbol that
+carries them renders identically to one that doesn't, since write_symbol
+never reads s->diagram or s->refs.*/
+static void test_md_diagram_refs_ignored(const char *out_dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/diagram_refs_ignored", out_dir);
+
+    char *refs[] = { "other" };
+    DxSymbol symbols[] = {
+        {
+            .kind = "function", .line = 1, .name = "f",
+            .signature = "void f()",
+            .brief = NULL, .params = NULL, .param_count = 0,
+            .returns = NULL, .notes = NULL,
+            .diagram = "flowchart TD A --> B",
+            .refs = refs, .ref_count = 1,
+        },
+    };
+    DxDir dirs[] = { {.name = "src", .parent_index = -1} };
+    DxFile files[] = {
+        {.name = "F.c", .parent_dir_index = 0, .language = "c",
+         .symbols = symbols, .symbol_count = 1, .error = 0},
+    };
+    DxModel m = {.dirs = dirs, .dir_count = 1, .files = files, .file_count = 1};
+
+    assert(md_render(&m, path, "Test Docs") == 0);
+
+    char module_path[600];
+    snprintf(module_path, sizeof module_path, "%s/src/F.md", path);
+    char *md = read_file(module_path);
+
+    assert(strstr(md, "flowchart") == NULL);
+    assert(strstr(md, "other") == NULL);
+
+    free(md);
+    printf("test_md_diagram_refs_ignored passed\n");
+}
+
+/*md_render fails cleanly (returns -1) when it can't create/open its
+output files - e.g. a path component collides with an existing plain
+file. Relies on out_dir already existing from earlier tests in this run.*/
+static void test_md_write_failure(const char *out_dir) {
+    char blocker_file[600];
+    snprintf(blocker_file, sizeof blocker_file, "%s/blocker_write_failure", out_dir);
+    FILE *f = fopen(blocker_file, "wb");
+    assert(f != NULL);
+    fclose(f);
+
+    char bad_path[700];
+    snprintf(bad_path, sizeof bad_path, "%s/sub", blocker_file);
+
+    DxDir dirs[] = { {.name = "src", .parent_index = -1} };
+    DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
+
+    assert(md_render(&m, bad_path, "Should Fail") == -1);
+
+    printf("test_md_write_failure passed\n");
+}
+
 int main(int argc, char **argv) {
     const char *out_dir = argc > 1 ? argv[1] : "tests/tmp";
 
@@ -224,9 +360,14 @@ int main(int argc, char **argv) {
     test_md_dir_path_nested();
     test_md_dir_path_buffer_too_small();
     test_md_file_path();
+    test_md_file_path_buffer_too_small();
     test_module_symbol_rendering(out_dir);
     test_empty_and_error_files_same_shape(out_dir);
     test_index_tree(out_dir);
+    test_md_default_title(out_dir);
+    test_md_raw_passthrough(out_dir);
+    test_md_diagram_refs_ignored(out_dir);
+    test_md_write_failure(out_dir);
 
     printf("\nAll md_renderer checks passed.\n");
     return 0;
