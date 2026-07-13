@@ -20,27 +20,41 @@
 /* File parsing                                                        */
 /* ------------------------------------------------------------------ */
 
-/* fgets-style line reader over an in-memory FileBuffer. Copies the next line -
- * up to and including its '\n', like fgets - into out as a NUL-terminated
- * string and advances *pos. Lines longer than the buffer are split to fit
- * out[0..cap), just as fgets does. A trailing "\r\n" is normalised to "\n" to
- * mirror text-mode fopen. Returns out, or NULL once the buffer is consumed. */
-static char *buf_getline(const FileBuffer *buf, size_t *pos, char *out, size_t cap)
+/* fgets-style line reader over an in-memory FileBuffer. Frees the previous
+ * *line, then allocates and returns the next line - up to and including its
+ * '\n', like fgets - as a NUL-terminated string, advancing *pos. A trailing
+ * "\r\n" is normalised to "\n" to mirror text-mode fopen. Returns *line, or
+ * NULL once the buffer is consumed (with *line reset to NULL).
+ *
+ * NOTE: allocates a fresh buffer per line and frees the prior one - deliberately
+ * simple and wasteful for now, an intermediate step toward slice-based parsing
+ * that reads straight from the FileBuffer with no copy. */
+static char *buf_getline(const FileBuffer *buf, size_t *pos, char **line)
 {
-    if (cap == 0 || *pos >= buf->len)
+    free(*line);
+    *line = NULL;
+
+    if (*pos >= buf->len)
         return NULL;
 
+    /* Extent of this line: up to and including the next '\n' (or end of buffer). */
+    size_t start = *pos, i = start;
+    while (i < buf->len && buf->data[i] != '\n')
+        i++;
+    size_t end = i < buf->len ? i + 1 : buf->len;
+
+    /* Copy the slice, dropping the CR of any trailing "\r\n". */
+    char *out = (char *)xmalloc(end - start + 1);
     size_t o = 0;
-    while (*pos < buf->len && o + 1 < cap) {
-        char c = buf->data[*pos];
-        (*pos)++;
-        if (c == '\r' && *pos < buf->len && buf->data[*pos] == '\n')
-            continue; /* drop the CR of a CRLF; the LF is copied next iteration */
-        out[o++] = c;
-        if (c == '\n')
-            break;
+    for (size_t k = start; k < end; k++) {
+        if (buf->data[k] == '\r' && k + 1 < buf->len && buf->data[k + 1] == '\n')
+            continue;
+        out[o++] = buf->data[k];
     }
     out[o] = '\0';
+
+    *pos = end;
+    *line = out;
     return out;
 }
 
@@ -56,7 +70,7 @@ Module *plx_parse_file(const char *path)
 
     Module *mod = init_module(path);
     DocBlock blk;
-    char line[MAX_LINE];
+    char *line = NULL;
     size_t pos = 0;
     int lineNo = 0;
 
@@ -71,7 +85,7 @@ Module *plx_parse_file(const char *path)
     sb_init(&sig);
 
     // Iterate line by line
-    while (buf_getline(&buf, &pos, line, sizeof line)) {
+    while (buf_getline(&buf, &pos, &line)) {
         char *content;
         char *procName;
 
@@ -173,6 +187,7 @@ Module *plx_parse_file(const char *path)
         free(sigProc);
         sb_free(&sig);
     }
+    free(line); /* buf_getline nulls it at EOF; defensive for any early exit */
     module_shrink_to_fit(mod);
 
     free_file_buffer(&buf);
