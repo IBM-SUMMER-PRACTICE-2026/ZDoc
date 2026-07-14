@@ -10,5 +10,6 @@
 #endif
 
 type_thread create_thread(void (*thread_func)(void));
+void wait_for_thread(type_thread* working_thread);
 
 #endif

@@ -11,65 +11,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ZDOC_C_PARSER_VERSION "0.1.0"
 
-static const char *lang_of(const char *path)
-{
-    const char *dot = strrchr(path, '.');
-    if (!dot)
-        return "c";
-    static const char *const cpp_exts[] = {".cpp", ".cxx", ".cc", ".hpp",
-                                           ".hh", ".hxx", ".ipp"};
-    for (size_t i = 0; i < sizeof cpp_exts / sizeof *cpp_exts; i++)
-        if (strcmp(dot, cpp_exts[i]) == 0)
-            return "cpp";
-    return "c";
-}
-
-/* Render a possibly-NULL string as "(null)" so every field prints. */
-static const char *or_null(const char *s)
-{
-    return s ? s : "(null)";
-}
-
-static void print_module(const Module *m, const char *path)
-{
-    printf("Module: %s (language: %s)\n", or_null(m->filename), lang_of(path));
-    printf("Documented symbols: %d\n", m->symbolCount);
-
-    for (int i = 0; i < m->symbolCount; i++) {
-        const Symbol *s = &m->symbols[i];
-        printf("\n[%d] %s\n", i + 1, or_null(s->name));
-        printf("    Name       : %s\n", or_null(s->name));
-        printf("    Signature  : %s\n", or_null(s->signature));
-        printf("    Line       : %u\n", s->line);
-        printf("    Type       : %s\n", or_null(s->type));
-        printf("    Brief      : %s\n", or_null(s->description));
-        printf("    Returns    : %s\n", or_null(s->output));
-        printf("    Notes      : %s\n", or_null(s->notes));
-        printf("    Diagram    : %s\n", or_null(s->diagram));
-        printf("    Params (%d) :", s->inputCount);
-        if (s->inputCount == 0) {
-            fputs(" (none)\n", stdout);
-        } else {
-            fputc('\n', stdout);
-            for (int j = 0; j < s->inputCount; j++)
-                printf("      - %s - %s\n", or_null(s->input[j].name),
-                       or_null(s->input[j].description));
-        }
-    }
-}
-
 static int emit_module(const char *path)
 {
+    clock_t t0 = clock();
     Module *m = cp_parse_file(path);
+    clock_t t1 = clock();
     if (!m) {
         fprintf(stderr, "zdoc-c-parser: %s: out of memory\n", path);
         return 1;
     }
-    print_module(m, path);
-    cp_free_module(m);
+    print_module(m);
+    free_module(m);
+    fflush(stdout);
+    fprintf(stderr, "%s: parsed in %.3f ms\n", path,
+                (double)(t1 - t0) * 1000.0 / CLOCKS_PER_SEC);
     return 0;
 }
 

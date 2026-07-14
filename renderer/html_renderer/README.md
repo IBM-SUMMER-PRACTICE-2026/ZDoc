@@ -4,13 +4,17 @@ Renders the documentation model as a single self-contained `index.html` with emb
 CSS and JavaScript — no external dependencies required for offline output.
 
 - **Layer:** `renderer/`
-- **Planned binary:** `zdoc-html-renderer`
-- **Status:** Planned
+- **Binary:** `zdoc-html-renderer`
+- **Status:** Implemented
 
 ## Input / output
 
-- **Input:** the normalised documentation-model JSON from
-  [`doc_extractor`](../../extractor/doc_extractor/), read from stdin or a file.
+- **Input:** the daemon's already-walked module_tree tables (`modtree_dir_table_t`/
+  `modtree_file_table_t`) plus its parsed `Module` array, passed directly in memory -
+  no JSON, no doc_extractor stage in between. See `html_renderer.h`. Cross-reference
+  links (previously carried by doc_extractor's `refs` field) were dropped along with
+  it - nothing upstream ever actually populated that field, so nothing that worked
+  was lost.
 - **Output:** `index.html` (and any assets) written under the output directory
   (default `./zdoc-out`).
 
@@ -24,7 +28,12 @@ HTML without JS, diagrams are omitted and a note is inserted instead (see docs/Z
 ```sh
 make                      # builds ./zdoc-html-renderer
 ... | ./zdoc-html-renderer --out-dir ./zdoc-out
-make test
+make test                 # or: sh tests/run_tests.sh
 ```
+
+Options: `--out-dir DIR`, `--title TITLE`, `--version`, `--help`; reads the model
+JSON from a file argument or stdin. Exit codes: 0 ok, 1 bad input or write
+failure, 2 usage error. The JSON contract, including the optional
+`doc.diagram`/`doc.refs` keys, is documented by [`sample.json`](sample.json).
 
 See [`docs/ZDOC.md`](../../docs/ZDOC.md) for the full specification.

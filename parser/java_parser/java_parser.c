@@ -6,71 +6,7 @@
 #include "java_parser.h"
 #include "util.h"
 #include "doc_comment.h"
-
-// Free the memory allocated for a symbol and its contents
-static void symbol_free(Symbol *y) {
-    free(y->name);
-    free(y->signature);
-    free(y->description);
-    free(y->output);
-    free(y->diagram);
-    free(y->notes);
-    free(y->type);
-    for(int k = 0; k < y->inputCount; k++) {
-        free(y->input[k].name);
-        free(y->input[k].description);
-    }
-    free(y->input);
-}
-
-void module_free(Module *m) {
-    if(!m) return;
-    for(int s = 0; s < m->symbolCount; s++) symbol_free(&m->symbols[s]);
-    free(m->symbols);
-    free(m->filename);
-    free(m);
-}
-
-// Read a whole file into memory. Returns NULL (and sets *err) on failure so the
-// caller can still emit a valid, empty module and move on to the next file.
-static char *read_file(const char *path, size_t *out_len, const char **err) {
-    *err = NULL;
-    FILE *f = fopen(path, "rb");
-    if(!f) {
-        *err = "could not open file";
-        return NULL;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    if(size < 0) {
-        fclose(f);
-        *err = "could not determine file size";
-        return NULL;
-    }
-    rewind(f);
-
-    char *buf = malloc((size_t)size ? (size_t)size : 1);
-    if(!buf) {
-        fclose(f);
-        *err = "out of memory";
-        return NULL;
-    }
-
-    size_t n = fread(buf, 1, (size_t)size, f);
-    fclose(f);
-    *out_len = n;
-    return buf;
-}
-
-// Append a symbol to the module's symbol array. The array's memory is expanded if necessary.
-static void module_push(Module *m, Symbol sym) {
-    if(m->symbolCount == m->symbolCap) {
-        m->symbolCap = m->symbolCap ? m->symbolCap * 2 : 8;
-        m->symbols = xrealloc(m->symbols, (size_t)m->symbolCap * sizeof(Symbol));
-    }
-    m->symbols[m->symbolCount++] = sym;
-}
+#include "../shared/file_buffer.h"
 
 // Skip any annotations (e.g. @Override, @SuppressWarnings("unchecked"), stacked or with
 // nested-paren arguments) between a doc comment and the declaration it documents.
@@ -207,19 +143,16 @@ static char *extract_name(const char *sig) {
 }
 
 Module *java_parse(const char *path) {
-    Module *m = (Module *)calloc(1, sizeof *m);
-    if(!m) return NULL;
-    m->filename = xstrndup(path, strlen(path));
+    Module *m = init_module(path);
 
-    size_t len;
-    const char *err;
-    char *src = read_file(path, &len, &err);
-    if(!src) {
-        // Report the failure but still return a valid, empty module so the
-        // caller can carry on (mirrors cp_parse_file's behaviour).
-        fprintf(stderr, "zdoc-java-parser: %s: %s\n", path, err);
+    FileBuffer fb = read_file_buffer(path);
+    if(!fb.data) {
+        // read_file_buffer already reported the failure; still return a valid,
+        // empty module so the caller can carry on (mirrors cp_parser's behaviour).
         return m;
     }
+    const char *src = fb.data;
+    size_t len = fb.len;
 
     size_t line_anchor_pos = 0;
     uint32_t line_anchor_line = 1;
@@ -262,9 +195,9 @@ Module *java_parse(const char *path) {
                     sym.name        = extract_name(sym.signature);  // Extract the method or constructor name from the signature
                     sym.line        = line_of(src, sig_start, &line_anchor_pos, &line_anchor_line);
                     sym.type        = classify_type(sym.signature, sym.name);  // "method" or "constructor"
-                    module_push(m, sym);
+                    *module_add_symbol(m) = sym;
                 } else {
-                    symbol_free(&sym);  //  Free any partially filled symbol if parsing failed
+                    free_symbol_content(&sym);  //  Free any partially filled symbol if parsing failed
                 }
             }
 
@@ -276,40 +209,6 @@ Module *java_parse(const char *path) {
         i = after_ws > i ? after_ws : i + 1;
     }
 
-    free(src);
+    free_file_buffer(&fb);
     return m;
-}
-
-// Render a possibly-NULL string as "(null)" so every field prints.
-static const char *or_null(const char *s) {
-    return s ? s : "(null)";
-}
-
-// Human-readable dump of a parsed module, mirroring the plx_parser demo layout.
-void java_print_module(const Module *m) {
-    printf("Module: %s\n", or_null(m->filename));
-    printf("Documented methods/constructors: %d\n", m->symbolCount);
-
-    for(int i = 0; i < m->symbolCount; i++) {
-        const Symbol *s = &m->symbols[i];
-
-        printf("\n[%d] %s\n", i + 1, or_null(s->name));
-        printf("    Name       : %s\n", or_null(s->name));
-        printf("    Signature  : %s\n", or_null(s->signature));
-        printf("    Line       : %u\n", s->line);
-        printf("    Brief      : %s\n", or_null(s->description));
-        printf("    Returns    : %s\n", or_null(s->output));
-        printf("    Notes      : %s\n", or_null(s->notes));
-        printf("    Type       : %s\n", or_null(s->type));
-        printf("    Diagram    : %s\n", or_null(s->diagram));
-        printf("    Params (%d) :", s->inputCount);
-        if(s->inputCount == 0) {
-            printf(" (none)\n");
-        } else {
-            printf("\n");
-            for(int j = 0; j < s->inputCount; j++)
-                printf("      - %s - %s\n", or_null(s->input[j].name),
-                       or_null(s->input[j].description));
-        }
-    }
 }

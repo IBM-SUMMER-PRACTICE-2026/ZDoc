@@ -9,8 +9,9 @@ Renders the documentation model as Markdown: one `.md` file per module plus a ro
 
 ## Input / output
 
-- **Input:** the normalised documentation-model JSON from
-  [`doc_extractor`](../../extractor/doc_extractor/), read from stdin or a file.
+- **Input:** the daemon's already-walked module_tree tables (`modtree_dir_table_t`/
+  `modtree_file_table_t`) plus its parsed `Module` array, passed directly in memory -
+  no JSON, no doc_extractor stage in between. See `src/md_renderer.h`.
 - **Output:** Markdown files written under the output directory (default `./zdoc-out`).
 
 Block diagrams (AI Assisted mode) are rendered as fenced ` ```mermaid ``` ` blocks.

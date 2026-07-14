@@ -17,8 +17,9 @@ per-token allocations.
 Doc comments (`/** */`, `/*! */`, `///`, `//!`) are parsed for
 `@brief`, `@param` / `@tparam` (incl. `[in]`/`[out]`), `@return(s)` /
 `@retval`, `@note` / `@remark(s)` / `@details`; unknown tags are kept
-verbatim under notes. A block carrying `@file` / `@mainpage` becomes the
-module-level doc instead of attaching to the next symbol.
+verbatim under notes. A block carrying `@file` / `@mainpage` is discarded
+rather than mis-attached to the next symbol — ZDoc has no module-level doc
+concept.
 
 ## Why it is fast
 
@@ -31,7 +32,7 @@ module-level doc instead of attaching to the next symbol.
 - **Lazy line numbers.** Newlines are counted with `memchr` only over the
   gap since the previous symbol, so hot loops never track lines.
 - **Heap-allocated strings.** Each output string is individually allocated;
-  `cp_result_free` walks the symbols and doc blocks to release them.
+  the shared `free_module()` walks the symbols to release them.
 
 ## Performance
 
@@ -58,13 +59,13 @@ current implementation provides:
   children of one parent are contiguous. The links can therefore be
   stamped during emission (track the current parent's index in the `P`
   state, restore it when the recursion unwinds) or rebuilt afterwards in
-  one linear post-pass over `cp_symbols()` — no re-parse needed.
+  one linear post-pass over the module's `symbols` array — no re-parse needed.
 - **One contiguous array, index-stable.** Symbols live in a single
-  realloc-grown array (`cp_result.syms`); an index assigned at emit time
-  stays valid even as the array grows, where pointers would dangle. Adding
-  two `int32` fields to `cp_symbol` costs 8 bytes/node and zero extra
-  allocations — heap-linked nodes would lose on both memory and traversal
-  locality.
+  realloc-grown array (`Module.symbols`, shared `Symbol` records); an
+  index assigned at emit time stays valid even as the array grows, where
+  pointers would dangle. Adding two `int32` fields to `Symbol` costs 8
+  bytes/node and zero extra allocations — heap-linked nodes would lose on
+  both memory and traversal locality.
 - **Source order is preserved.** Sibling order in the array is declaration
   order, so `next_sibling` chains come out already sorted for rendering.
 
@@ -99,7 +100,6 @@ ready for the ZDoc extractor/renderer stages:
 ```json
 {"zdoc_parser":"c","version":"0.1.0","modules":[
   {"file":"foo.c","language":"c",
-   "module_doc":{"brief":"..."},
    "symbols":[
      {"kind":"prototype","line":26,"name":"widget_init",
       "signature":"int widget_init(void *anchor, unsigned flags)",
@@ -112,11 +112,12 @@ ready for the ZDoc extractor/renderer stages:
 Link `c_parser.c` and include `c_parser.h`:
 
 ```c
-cp_result *r = cp_parse_file("foo.cpp");
-size_t n;
-const cp_symbol *syms = cp_symbols(r, &n);
-/* ... */
-cp_result_free(r);
+Module *m = cp_parse_file("foo.cpp");   /* shared parser_shared.h Module */
+for (int i = 0; i < m->symbolCount; i++) {
+    const Symbol *s = &m->symbols[i];
+    /* ... */
+}
+free_module(m);
 ```
 
 ## Known limitations

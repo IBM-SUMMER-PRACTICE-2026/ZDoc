@@ -1,4 +1,4 @@
-CFLAGS  ?= -O3 -std=c11 -Wall -Wextra -Wpedantic
+CFLAGS  ?= -O3 -std=c11 -Wall -Wextra -Wpedantic -I../shared
 
 
 ifeq ($(OS),Windows_NT)
@@ -26,7 +26,7 @@ else
     fixpath = $1
 endif
 
-OBJS    = c_parser.o main.o
+OBJS    = c_parser.o main.o parser_shared_interface.o file_buffer.o
 
 SHARED_H = ../shared/parser_shared.h ../../extractor/doc_extractor/module_tree/modtree_tables.h
 
@@ -35,8 +35,15 @@ all: $(BIN)
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
-c_parser.o: c_parser.c c_parser.h $(SHARED_H)
+debug: CFLAGS += -g -O0 -fsanitize=address -fno-omit-frame-pointer
+debug: $(BIN)
+
+c_parser.o: c_parser.c c_parser.h ../shared/file_buffer.h $(SHARED_H)
 main.o: main.c c_parser.h $(SHARED_H)
+parser_shared_interface.o: ../shared/parser_shared_interface.c $(SHARED_H)
+	$(CC) $(CFLAGS) -c -o $@ ../shared/parser_shared_interface.c
+file_buffer.o: ../shared/file_buffer.c ../shared/file_buffer.h
+	$(CC) $(CFLAGS) -c -o $@ ../shared/file_buffer.c
 
 test: $(BIN)
 	$(RUN) tests/sample.c tests/sample.cpp
@@ -44,4 +51,4 @@ test: $(BIN)
 clean:
 	-$(RM) $(call fixpath,$(BIN) $(OBJS))
 
-.PHONY: all test clean
+.PHONY: all test debug clean

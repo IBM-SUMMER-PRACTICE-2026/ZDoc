@@ -5,40 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "helpers.h"
-
-void *xmalloc(size_t n)
-{
-    void *p = malloc(n);
-    if (!p) {
-        fprintf(stderr, "plx_parser: out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
-void *xrealloc(void *p, size_t n)
-{
-    p = realloc(p, n);
-    if (!p) {
-        fprintf(stderr, "plx_parser: out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
-char *xstrndup(const char *s, size_t n)
-{
-    char *d = xmalloc(n + 1);
-    memcpy(d, s, n);
-    d[n] = '\0';
-    return d;
-}
-
-char *xstrdup(const char *s)
-{
-    return xstrndup(s, strlen(s));
-}
+#include "str_helpers.h"
 
 int str_ieq(const char *a, const char *b)
 {
@@ -88,6 +55,38 @@ const char *skip_ws(const char *s)
     return s;
 }
 
+const char *skip_ws_n(const char *s, const char *end)
+{
+    while (s < end && isspace((unsigned char)*s))
+        s++;
+    return s;
+}
+
+int has_prefix_ci(const char *s, const char *end, const char *lit)
+{
+    for (; *lit; s++, lit++) {
+        if (s >= end || tolower((unsigned char)*s) != tolower((unsigned char)*lit))
+            return 0;
+    }
+    return 1;
+}
+
+int contains_ci(const char *s, const char *end, const char *needle)
+{
+    if (!*needle)
+        return 1;
+    for (; s < end; s++) {
+        const char *a = s, *b = needle;
+        while (a < end && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+            a++;
+            b++;
+        }
+        if (!*b)
+            return 1;
+    }
+    return 0;
+}
+
 char *trim_dup(const char *s, size_t n)
 {
     const char *end = s + n;
@@ -96,6 +95,16 @@ char *trim_dup(const char *s, size_t n)
     while (end > s && isspace((unsigned char)end[-1]))
         end--;
     return xstrndup(s, (size_t)(end - s));
+}
+
+Line trim_slice(const char *s, size_t n)
+{
+    const char *end = s + n;
+    while (s < end && isspace((unsigned char)*s))
+        s++;
+    while (end > s && isspace((unsigned char)end[-1]))
+        end--;
+    return (Line){ (char *)s, (size_t)(end - s) };
 }
 
 char *squeeze_ws(char *s)
@@ -150,6 +159,15 @@ void sb_join(StrBuf *b, const char *s)
     if (b->len)
         sb_puts(b, " ");
     sb_puts(b, s);
+}
+
+void sb_join_n(StrBuf *b, const char *s, size_t n)
+{
+    if (n == 0)
+        return;
+    if (b->len)
+        sb_puts(b, " ");
+    sb_putn(b, s, n);
 }
 
 char *sb_steal(StrBuf *b)

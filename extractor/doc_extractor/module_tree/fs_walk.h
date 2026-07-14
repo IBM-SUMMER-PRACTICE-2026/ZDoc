@@ -4,6 +4,15 @@
 #include "modtree_tables.h"
 #include <stddef.h>
 
+/* Maximum length (bytes) of the root prefix below. */
+#define FS_WALK_PATH_MAX 4096
+
+/* Absolute path of the walked root's PARENT directory, set by fs_walk().
+ * Reconstructed file paths (see modtree_file_path) start with the root's own
+ * name, so gluing this prefix on the front yields an absolute path that opens
+ * from any working directory. Empty until fs_walk() has run. */
+extern char fs_walk_root_prefix[FS_WALK_PATH_MAX];
+
 /* Recursively walks root_disk_path, interning every subdirectory into dirs
  * and every file whose extension matches one of `extensions` into files.
  * Seeds the root directory itself (its own name, parent = -1) before
