@@ -1,44 +1,51 @@
-/* zdoc_ai — local developer tool for AI Assisted (online) mode.
+/* zdoc_ai — local developer tool for AI Assisted (online) diagrams.
  *
- * Runs Bob over ONE source file and prints a Mermaid block diagram per symbol,
- * each tagged with the symbol's starting line — the key that ties a diagram to
- * the function it belongs to. This is the intended developer workflow: Bob is
- * local, invoked per file, not a codebase-wide daemon pass.
+ * Give it ONE source file. It parses the file to find each function and its
+ * starting line, then prints the Bob prompt plus that function list. Bob reads
+ * the file itself and returns one Mermaid flowchart per function, each tagged
+ * with its starting line so the diagram is matched back to the right symbol.
  *
  *     make -C ai zdoc_ai
- *     ./ai/zdoc_ai path/to/File.(c|java|plx) [--bob <bob-binary>]
+ *     ./ai/zdoc_ai path/to/File.(c|java|plx)
  *
- * It uses the real parser (parse_file) to get each symbol and its starting
- * line, then zdoc_ai_annotate_file to slice + diagram per symbol. Requires bob
- * on PATH (or --bob) with a valid session/API key; the diagram contract ships
- * in the prompt, so no Bob extension is needed. Output is Markdown so it can be
- * piped straight into docs.
+ * No Bob subprocess and no snippet assembly — this just emits the prompt and
+ * the (start line, name) list; Bob opens the file. The starting line is the key
+ * that ties each returned diagram to its symbol.
  */
-#include "ai_mode.h"
 #include "../parser/parser_interface.h"
-#include "bob_client/bob_client.h"
 
 #include <stdio.h>
-#include <string.h>
+
+static const char *PROMPT =
+    "Read the source file named below and produce a ZDoc block diagram for EACH\n"
+    "function listed. For every function output EXACTLY ONE Mermaid `flowchart\n"
+    "TD` block, preceded by a header line `## line <N>: <name>` using that\n"
+    "function's start line, and nothing else — no prose.\n"
+    "\n"
+    "Rules for every flowchart:\n"
+    "- First line is `flowchart TD`; then one node per line, 4-space indented.\n"
+    "- Node ids A, B, C... in flow order; the first node is the entry and every\n"
+    "  node is reachable from it.\n"
+    "- Shapes: [text] = step or return, {text} = decision phrased as a question,\n"
+    "  (text) = a call to another function.\n"
+    "- Label every decision out-edge (e.g. `B -- Yes --> C`); leave plain\n"
+    "  sequential edges unlabeled.\n"
+    "- 1-14 nodes, one per LOGICAL step: merge straight-line sequences, and\n"
+    "  render a loop as one body node plus a back-edge (never unrolled). Keep\n"
+    "  label text under ~6 words.\n"
+    "- Allowed characters inside a label: letters, digits, spaces and : = ? -\n"
+    "  only. Never put quotes, brackets, braces, parentheses, pipes, <>, &, #,\n"
+    "  ;, / or backticks inside label text; reword instead.\n"
+    "- If a function body is empty or pure data, output `flowchart TD` then a\n"
+    "  single node `    A[No executable logic]`.\n";
 
 int main(int argc, char **argv)
 {
-    const char *path = NULL;
-    const char *bob_cli = NULL;
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--bob") == 0 && i + 1 < argc)
-            bob_cli = argv[++i];
-        else if (argv[i][0] != '-')
-            path = argv[i];
-    }
-
-    if (!path) {
-        fprintf(stderr,
-                "usage: %s <file.c|.java|.plx> [--bob <bob-binary>]\n",
-                argv[0]);
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <file.c|.java|.plx>\n", argv[0]);
         return 2;
     }
+    const char *path = argv[1];
 
     enum Language lang = language_from_name(path);
     if ((int)lang < 0) {
@@ -54,26 +61,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    AiOptions opt;
-    opt.bob = bob_config_default();
-    if (bob_cli)
-        opt.bob.cli = bob_cli;
-
-    int n = zdoc_ai_annotate_file(path, mod, &opt);
-    if (n < 0) {
-        fprintf(stderr, "zdoc_ai: annotation error\n");
-        return 1;
-    }
-
-    printf("# %s — %d symbol(s), %d diagrammed\n", path, mod->symbolCount, n);
+    fputs(PROMPT, stdout);
+    printf("\nFile to read: %s\n", path);
+    printf("\nFunctions to diagram (%d), each tagged by its start line:\n",
+           mod->symbolCount);
     for (int i = 0; i < mod->symbolCount; i++) {
         Symbol *s = &mod->symbols[i];
-        printf("\n## line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
-        if (s->diagram && s->diagram[0])
-            printf("```mermaid\n%s\n```\n", s->diagram);
-        else
-            printf("_(no diagram)_\n");
+        printf("  line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
     }
 
-    return (n > 0) ? 0 : 1;
+    return (mod->symbolCount > 0) ? 0 : 1;
 }
