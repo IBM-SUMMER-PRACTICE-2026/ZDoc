@@ -52,9 +52,10 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Build the zdoc CLI for every native platform, each with that platform's
-  # own toolchain (gcc on Linux, Xcode clang on macOS, MSYS2 gcc/clang on
-  # Windows), after stamping the tag's version into options.h.
+  # Build the zdoc CLI for every native Linux/Windows platform, each with that
+  # platform's own toolchain (gcc on Linux, MSYS2 gcc/clang on Windows), after
+  # stamping the tag's version into options.h. macOS is built separately, in
+  # build-macos below - see that job for why.
   # ---------------------------------------------------------------------------
   build:
     needs: check-tag
@@ -67,10 +68,6 @@ jobs:
             platform: linux-x64
           - os: ubuntu-24.04-arm
             platform: linux-arm64
-          - os: macos-15-large      # Intel - macos-13 was removed from GitHub's
-            platform: macos-x64     # hosted fleet (only the latest 2 macOS
-          - os: macos-15            # versions are kept available); macos-14 is
-            platform: macos-arm64   # now deprecated too, so both legs moved to 15.
           - os: windows-latest      # x64
             platform: windows-x64
             msystem: UCRT64
@@ -128,12 +125,65 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Build BOTH macOS binaries on a single Apple Silicon runner, instead of a
+  # matrix leg per architecture. Xcode's clang cross-compiles to Intel from
+  # Apple Silicon out of the box via -arch x86_64 - the same mechanism Apple
+  # uses to ship its own "Universal" binaries from one machine - producing a
+  # genuinely native x86_64 Mach-O, not an emulated/QEMU one. That means the
+  # free arm64 runner (macos-15) is enough for both; there's no need for a
+  # separate Intel runner (macos-*-large), which is a paid-tier-only runner
+  # class that isn't available under every billing/spending-limit setup.
+  # ---------------------------------------------------------------------------
+  build-macos:
+    needs: check-tag
+    if: needs.check-tag.outputs.release == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp the release version into options.h
+        run: |
+          sed -i.bak 's/#define ZD_VERSION ".*"/#define ZD_VERSION "${{ needs.check-tag.outputs.version }}"/' \
+            zdoc/cli/options.h
+          rm -f zdoc/cli/options.h.bak
+          grep ZD_VERSION zdoc/cli/options.h
+
+      - name: Build + collect macos-arm64 (native)
+        env:
+          PLATFORM: macos-arm64
+        run: |
+          make -C zdoc/cli
+          sh scripts/collect-artifacts.sh
+
+      - name: Upload macos-arm64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dist/macos-arm64
+          if-no-files-found: error
+
+      - name: Build + collect macos-x64 (cross-compiled)
+        env:
+          PLATFORM: macos-x64
+        run: |
+          make -C zdoc/cli clean
+          make -C zdoc/cli CFLAGS="-O2 -std=c11 -Wall -Wextra -arch x86_64"
+          sh scripts/collect-artifacts.sh
+
+      - name: Upload macos-x64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64
+          path: dist/macos-x64
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Assemble every platform's binary under dist/<version>/ (one file per OS,
   # distinctly named) and publish that folder to the GitOps repo, alongside
   # whatever earlier versions are already there.
   # ---------------------------------------------------------------------------
   publish:
-    needs: [check-tag, build]
+    needs: [check-tag, build, build-macos]
     runs-on: ubuntu-latest
     env:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
