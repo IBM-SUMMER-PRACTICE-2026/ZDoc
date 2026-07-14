@@ -78,10 +78,11 @@ static char **split_args(const char *args, char **storage, size_t *n)
 static char *build_prompt(const char *language, const char *snippet)
 {
     static const char *pre =
-        "Produce a ZDoc block diagram for the following ";
+        "Output a single Mermaid block diagram (flowchart TD) for the following ";
     static const char *mid =
-        " function as a single Mermaid flowchart, per the zdoc-diagram rules. "
-        "Output only the Mermaid block.\n\n";
+        " function, following the ZDoc diagram contract already in your context. "
+        "Do not use any tools, do not read files, do not add prose or "
+        "explanation — respond with only the Mermaid block.\n\n";
     const char *lang = (language && *language) ? language : "";
     size_t lp = strlen(pre), ll = strlen(lang), lm = strlen(mid),
            ls = strlen(snippet);
