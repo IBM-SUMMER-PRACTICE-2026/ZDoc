@@ -110,12 +110,49 @@ trap - EXIT
 
 echo "install: installed zdoc $version -> $dest" >&2
 
+# 5. Persist INSTALL_DIR onto PATH so `zdoc` resolves without a manual step,
+#    if it isn't already there.
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
-        echo >&2
-        echo "install: $INSTALL_DIR is not on your PATH yet." >&2
-        echo "install:   add it, e.g.: echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.profile" >&2
+        if [ "$os_tag" = "windows" ] && command -v powershell.exe >/dev/null 2>&1; then
+            # A POSIX shell's rc file only reaches other POSIX shells (this
+            # one, or future Git Bash/MSYS sessions) - cmd.exe and PowerShell
+            # read PATH from the registry instead, so that's what actually
+            # needs updating for `zdoc` to resolve everywhere on Windows.
+            win_dir=$(cygpath -w "$INSTALL_DIR" 2>/dev/null \
+                || printf '%s' "$INSTALL_DIR" | sed -E 's#^/([a-zA-Z])/#\1:/#; s#/#\\#g')
+            result=$(ZDOC_WIN_DIR="$win_dir" powershell.exe -NoProfile -Command '
+                $d = $env:ZDOC_WIN_DIR
+                $p = [Environment]::GetEnvironmentVariable("PATH","User")
+                if (($p -split ";") -notcontains $d) {
+                    $new = if ($p) { "$p;$d" } else { $d }
+                    [Environment]::SetEnvironmentVariable("PATH", $new, "User")
+                    Write-Output "added"
+                } else {
+                    Write-Output "unchanged"
+                }
+            ' 2>/dev/null)
+            if [ "$result" = "added" ]; then
+                echo "install: added $win_dir to your Windows user PATH - open a new cmd/PowerShell/Git Bash window for it to take effect." >&2
+            else
+                echo "install: could not update the Windows PATH automatically - add $win_dir to it yourself." >&2
+            fi
+        else
+            # Pick the rc file the user's actual shell reads, not a generic
+            # guess - zsh doesn't source ~/.profile, for instance.
+            case "${SHELL:-}" in
+                */zsh)  rc="$HOME/.zshrc" ;;
+                */bash) rc="$HOME/.bashrc" ;;
+                *)      rc="$HOME/.profile" ;;
+            esac
+            if grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
+                echo "install: $INSTALL_DIR already referenced in $rc - open a new terminal for it to take effect." >&2
+            else
+                printf '\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc"
+                echo "install: added $INSTALL_DIR to PATH in $rc - open a new terminal, or run: source $rc" >&2
+            fi
+        fi
         ;;
 esac
 
