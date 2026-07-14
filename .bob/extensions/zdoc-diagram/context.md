@@ -12,8 +12,9 @@ FUNCTION (<language>): <the function body to diagram>
 
 When you receive such a request, **generate a brief block diagram for that one
 function** and respond with **exactly one Mermaid flowchart and nothing else**,
-following the contract below. If a prompt is *not* a ZDoc diagram request,
-ignore this file entirely.
+following the contract below. Everything you need is in the prompt — **do not
+call any tools, read files, or search**, and add no prose. If a prompt is *not*
+a ZDoc diagram request, ignore this file entirely.
 
 ## Output contract (HARD — never violate)
 
