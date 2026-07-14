@@ -102,6 +102,8 @@ void thread_func() {
             continue;
         }
 
+        // TODO: Make Bob call with the path and the Module
+
         finished->pathIndex = curr_possition_in_arry;
         global_parsed_files_arry[curr_possition_in_arry] = *finished;
 
