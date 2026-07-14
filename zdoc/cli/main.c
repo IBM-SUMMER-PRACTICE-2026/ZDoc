@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     /* Placeholder for the daemon call: emit the request it will receive. */
     // zd_request_write(&opt, stdout);
 
-    zdoc_daemon_start_job(&opt);
+    if (zdoc_daemon_start_job(&opt) != ZDOC_OK) return 3;
 
     return 0;
 }

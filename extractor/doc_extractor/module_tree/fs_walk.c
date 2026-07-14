@@ -180,12 +180,12 @@ static int is_excluded(const char* name, const char* disk_path,
     return 0;
 }
 
-static int walk_dir(const char* disk_path, int current_dir_index,
+static enum ZDoc_Error walk_dir(const char* disk_path, int current_dir_index,
                      modtree_dir_table_t* dirs, modtree_file_table_t* files,
                      const char** extensions, size_t extension_count,
                      const char** excludes, size_t exclude_count, int recursive) {
     fs_dir_t dir;
-    if (fs_dir_open(disk_path, &dir) != 0) return -1;
+    if (fs_dir_open(disk_path, &dir) != 0) return ZDOC_FS_WALK_FAILED;
 
     char name[256];
     int is_directory;
@@ -194,7 +194,7 @@ static int walk_dir(const char* disk_path, int current_dir_index,
     while ((result = fs_dir_next(&dir, name, sizeof(name), &is_directory)) == 1) {
         char child_disk_path[FS_WALK_PATH_BUF];
         int n = snprintf(child_disk_path, sizeof(child_disk_path), "%s" FS_WALK_SEP "%s", disk_path, name);
-        if (n < 0 || (size_t)n >= sizeof(child_disk_path)) { fs_dir_close(&dir); return -1; }
+        if (n < 0 || (size_t)n >= sizeof(child_disk_path)) { fs_dir_close(&dir); return ZDOC_PATH_TOO_LONG; }
 
         if (is_excluded(name, child_disk_path, excludes, exclude_count)) continue;
 
@@ -202,23 +202,24 @@ static int walk_dir(const char* disk_path, int current_dir_index,
             if (!recursive) continue; /* not interned, not descended into */
 
             int new_index = modtree_intern_dir(dirs, name, current_dir_index);
-            if (new_index < 0) { fs_dir_close(&dir); return -1; }
+            if (new_index < 0) { fs_dir_close(&dir); return ZDOC_OUT_OF_MEMORY; }
 
-            if (walk_dir(child_disk_path, new_index, dirs, files, extensions, extension_count,
-                         excludes, exclude_count, recursive) != 0) {
+            enum ZDoc_Error sub_status = walk_dir(child_disk_path, new_index, dirs, files,
+                         extensions, extension_count, excludes, exclude_count, recursive);
+            if (sub_status != ZDOC_OK) {
                 fs_dir_close(&dir);
-                return -1;
+                return sub_status;
             }
         } else if (matches_extension(name, extensions, extension_count)) {
             if (modtree_intern_file(files, name, current_dir_index) < 0) {
                 fs_dir_close(&dir);
-                return -1;
+                return ZDOC_OUT_OF_MEMORY;
             }
         }
     }
 
     fs_dir_close(&dir);
-    return (result == -1) ? -1 : 0;
+    return (result == -1) ? ZDOC_FS_WALK_FAILED : ZDOC_OK;
 }
 
 /* Extracts the last path component of disk_path, e.g.
@@ -233,7 +234,7 @@ static const char* last_path_component(const char* disk_path) {
     return last;
 }
 
-int fs_walk(const char* root_disk_path,
+enum ZDoc_Error fs_walk(const char* root_disk_path,
             modtree_dir_table_t* dirs,
             modtree_file_table_t* files,
             const char** extensions,
@@ -242,7 +243,7 @@ int fs_walk(const char* root_disk_path,
             size_t exclude_count,
             int recursive) {
     char abs_root[FS_WALK_PATH_MAX];
-    if (resolve_absolute_path(root_disk_path, abs_root, sizeof(abs_root)) != 0) return -1;
+    if (resolve_absolute_path(root_disk_path, abs_root, sizeof(abs_root)) != 0) return ZDOC_FS_WALK_FAILED;
 
     const char* root_name = last_path_component(abs_root);
 
@@ -253,11 +254,11 @@ int fs_walk(const char* root_disk_path,
     if (sep && sep != fs_walk_root_prefix) *sep = '\0';
 
     int root_index = modtree_intern_dir(dirs, root_name, -1);
-    if (root_index < 0) return -1;
+    if (root_index < 0) return ZDOC_OUT_OF_MEMORY;
 
 #ifdef _WIN32
     char prefixed_root[FS_WALK_PATH_BUF];
-    if (win32_root_prefixed(root_disk_path, prefixed_root, sizeof(prefixed_root)) != 0) return -1;
+    if (win32_root_prefixed(root_disk_path, prefixed_root, sizeof(prefixed_root)) != 0) return ZDOC_PATH_TOO_LONG;
     return walk_dir(prefixed_root, root_index, dirs, files, extensions, extension_count,
                      excludes, exclude_count, recursive);
 #else

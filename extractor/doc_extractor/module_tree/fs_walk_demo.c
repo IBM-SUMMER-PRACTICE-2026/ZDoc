@@ -23,9 +23,9 @@ int main(int argc, char* argv[]) {
     modtree_dir_table_init(&dirs);
     modtree_file_table_init(&files);
 
-    int rc = fs_walk(root_path, &dirs, &files, extensions, extension_count, NULL, 0, 1);
-    if (rc != 0) {
-        fprintf(stderr, "fs_walk failed on '%s'\n", root_path);
+    enum ZDoc_Error rc = fs_walk(root_path, &dirs, &files, extensions, extension_count, NULL, 0, 1);
+    if (rc != ZDOC_OK) {
+        fprintf(stderr, "fs_walk failed on '%s' (error %d)\n", root_path, rc);
         modtree_dir_table_free(&dirs);
         modtree_file_table_free(&files);
         return 1;

@@ -52,11 +52,11 @@ typedef struct Module {
 /* Function that initializes the files count,
     getting it from the interface that modtree_tables.h provides
     and allocates memory for the global_parsed_files_arry.
-    returns 0 on succsess
-    returns -1 on failure
+    Returns ZDOC_OK on success, ZDOC_FILE_COUNT_UNAVAILABLE if the file
+    count could not be read, or ZDOC_OUT_OF_MEMORY if an allocation failed.
 */
 
-int init_resources();
+enum ZDoc_Error init_resources();
 
 
 /*********************************************/

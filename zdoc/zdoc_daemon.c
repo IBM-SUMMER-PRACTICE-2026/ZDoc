@@ -77,23 +77,29 @@ void thread_func() {
     }
 }
 
-void zdoc_daemon_start_job(zd_options* options) {
+enum ZDoc_Error zdoc_daemon_start_job(zd_options* options) {
 
     modtree_dir_table_init(&global_dir_table);
     modtree_file_table_init(&global_file_table);
 
-    int rc = fs_walk(options->inputs[0], &global_dir_table, &global_file_table,
+    enum ZDoc_Error rc = fs_walk(options->inputs[0], &global_dir_table, &global_file_table,
                       (const char**)options->languages, options->n_languages,
                       (const char**)options->excludes, options->n_excludes,
                       options->recursive);
-    if (rc != 0) {
-        fprintf(stderr, "fs_walk failed on '%s'\n", options->inputs[0]);
+    if (rc != ZDOC_OK) {
+        fprintf(stderr, "fs_walk failed on '%s' (error %d)\n", options->inputs[0], rc);
         modtree_dir_table_free(&global_dir_table);
         modtree_file_table_free(&global_file_table);
-        return;
+        return rc;
     }
 
-    init_resources();
+    enum ZDoc_Error init_status = init_resources();
+    if (init_status != ZDOC_OK) {
+        fprintf(stderr, "init_resources failed (error %d)\n", init_status);
+        modtree_dir_table_free(&global_dir_table);
+        modtree_file_table_free(&global_file_table);
+        return init_status;
+    }
 
     double start = now_seconds();
 
@@ -105,10 +111,6 @@ void zdoc_daemon_start_job(zd_options* options) {
         wait_for_thread(&threads[i]);
     }
 
-    // double elapsed = now_seconds() - start;
-    // printf("%d threads parsed %d files in %.3f s\n",
-    //        NUM_THREADS, files_count, elapsed);
-
     render(options->out_dir, options->title, options->format);
     
     double elapsed = now_seconds() - start;
@@ -118,4 +120,5 @@ void zdoc_daemon_start_job(zd_options* options) {
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
 
+    return ZDOC_OK;
 }
