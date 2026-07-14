@@ -33,18 +33,28 @@ typedef struct {
     BobConfig bob; /* how to reach Bob (cli + extra args); bob_config_default() */
 } AiOptions;
 
-/* Annotate every symbol in `modules` in place: for each one, slice its body
- * from the source file, build the zdoc-diagram snippet, call Bob, and store the
- * sanitized Mermaid flowchart in Symbol.diagram (any previous value freed).
+/* PRIMARY (local developer) entry point.
  *
- * Each module is matched to its source file through Module.pathIndex and the
- * module_tree tables — the same mapping the renderers use — so the source is
- * resolved the same way regardless of parse order.
+ * Annotate every symbol parsed from ONE source file. `path` is the file the
+ * developer ran Bob on; `mod` is what the parser produced for it (each Symbol
+ * carrying its starting `line`). For each symbol this slices its body out of
+ * `path` — from the symbol's starting line to the next symbol's starting line —
+ * builds the diagram snippet, calls Bob, and stores the sanitized Mermaid
+ * flowchart in that symbol's `diagram`. The starting line is the key that ties
+ * a diagram to the symbol it belongs to.
  *
- * Failure policy is silent-skip: a symbol whose body can't be sliced or whose
- * Bob call fails is left with diagram == NULL (the renderers simply omit the
- * diagram for it). Returns the number of symbols successfully annotated, or -1
- * on an unrecoverable error (bad arguments / allocation failure).
+ * The language is taken from `path`'s extension. Failure policy is silent-skip:
+ * a symbol whose body can't be sliced or whose Bob call fails is left with
+ * diagram == NULL. Returns the number of symbols annotated, or -1 on a bad
+ * argument / allocation failure.
+ */
+int zdoc_ai_annotate_file(const char *path, Module *mod, const AiOptions *opt);
+
+/* Batch entry point (multiple already-parsed modules). Same per-symbol logic as
+ * zdoc_ai_annotate_file, but each module is matched to its source file through
+ * Module.pathIndex + the module_tree tables (as the renderers do), so it can
+ * annotate a whole parsed tree. Returns the number of symbols annotated, or -1
+ * on an unrecoverable error.
  */
 int zdoc_ai_annotate(const modtree_dir_table_t *dirs,
                      const modtree_file_table_t *files,
