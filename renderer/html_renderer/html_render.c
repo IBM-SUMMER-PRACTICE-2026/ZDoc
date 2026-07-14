@@ -26,18 +26,6 @@
 #define IS_SEP(c) ((c) == '/')
 #endif
 
-/* Error-checked allocation - exits the process on OOM. Kept local (rather
- * than reused from doc_extractor's xalloc.h) since this renderer no longer
- * depends on anything under extractor/doc_extractor/src/. */
-static void *xmalloc(size_t n) {
-    void *p = malloc(n ? n : 1);
-    if(!p) {
-        fprintf(stderr, "zdoc-html-renderer: out of memory\n");
-        exit(1);
-    }
-    return p;
-}
-
 /* Language is derived from the file's own extension, independently of
  * whether a parsed module matched it - a tiny local table, not tied to any
  * parser binary or source. Duplicated in md_renderer: both renderers need

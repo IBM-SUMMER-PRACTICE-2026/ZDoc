@@ -14,9 +14,10 @@ static void zd_print_help(void) {
 "  --mode offline|ai         Operating mode (default: offline)\n"
 "  --output-format md|html   Output format (default: md)\n"
 "  --out-dir <path>          Directory for output files (default: ./zdoc-out)\n"
-"  --lang <lang>[,<lang>]    Restrict processing to listed languages\n"
+"  --lang <ext>[,<ext>]      Restrict processing to files with these extensions,\n"
+"                            comma-separated, dot included (e.g. --lang .c,.cpp)\n"
 "  --recursive               Recurse into subdirectories\n"
-"  --exclude <glob>          Exclude files matching glob (repeatable)\n"
+"  --exclude <glob>          Exclude files matching glob pattern\n"
 "  --bob-cli <path>          Path to Bob CLI binary (default: bob on PATH)\n"
 "  --bob-args <args>         Additional arguments forwarded to Bob CLI\n"
 "  --title <string>          Project title shown in the output\n"
@@ -24,7 +25,7 @@ static void zd_print_help(void) {
 "  --version                 Print ZDoc version\n"
 "  --help                    Print this help\n"
 "\n"
-"Supported languages: plx, plas, c, cpp (c++), java, asm (assembler), pascal\n"
+"Supported languages: c/c++, java, plx, plxmac\n"
 "\n"
 "Configuration may also be supplied via zdoc.yaml or zdoc.json in the\n"
 "working directory; command-line options override it. See docs/ZDOC.md.\n",ZD_VERSION
@@ -171,14 +172,8 @@ zd_cli_result zd_cli_parse(int argc, char **argv, zd_options *o) {
 
             snprintf(tmp, sizeof tmp, "%s", v);
             for(tok = strtok(tmp, ", \t"); tok; tok = strtok(NULL, ", \t")) {
-                const char *canon = zd_lang_canonical(tok);
-
-                if(!canon) {
-                    fprintf(stderr, "zdoc: unknown language '%s' (supported: %s)\n", tok, zd_lang_supported());
-                    return ZD_CLI_ERROR;
-                }
                 if(o->n_languages < ZD_MAX_LANGS)
-                    snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", canon);
+                    snprintf(o->languages[o->n_languages++], ZD_LANG_MAX, "%s", tok);
             }
 
         }else {

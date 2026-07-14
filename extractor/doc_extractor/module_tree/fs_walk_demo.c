@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
     modtree_dir_table_init(&dirs);
     modtree_file_table_init(&files);
 
-    int rc = fs_walk(root_path, &dirs, &files, extensions, extension_count);
+    int rc = fs_walk(root_path, &dirs, &files, extensions, extension_count, NULL, 0, 1);
     if (rc != 0) {
         fprintf(stderr, "fs_walk failed on '%s'\n", root_path);
         modtree_dir_table_free(&dirs);
