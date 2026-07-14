@@ -1,0 +1,3 @@
+# ai-bob/ layer build artifacts
+*.o
+bob_call_test

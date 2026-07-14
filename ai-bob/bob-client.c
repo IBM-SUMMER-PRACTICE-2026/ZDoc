@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "bob-client.h"
+#include "process_interface/process_interface.h"
 
 
 // Prompt components for bob with their lengths (lengths must always be manually updated)
@@ -101,7 +102,7 @@ enum ZDoc_Error bob_client(const char * path, Module * module, char * bob_cli) {
     // Call bob
     char * response = NULL;
     size_t response_len = 0;
-    rc = bob_call(prompt, response, &response_len, bob_cli);
+    rc = bob_call(prompt, &response, &response_len, bob_cli);
     if(rc != ZDOC_OK) {
         free(response);
         return rc;
@@ -114,5 +115,24 @@ enum ZDoc_Error bob_client(const char * path, Module * module, char * bob_cli) {
         return rc;
     }
     
+    return ZDOC_OK;
+}
+
+enum ZDoc_Error bob_call(const char * prompt, char ** response, size_t * response_len, char * bob_cli) {
+    *response = NULL;
+    *response_len = 0;
+
+    h in_Rd, in_Wd, out_Rd, out_Wd;
+    open_pipes_bob_comunication(bob_cli, &in_Rd, &in_Wd, &out_Rd, &out_Wd);
+
+    bob_write_message(in_Wd, prompt, strlen(prompt));
+    char * out = read_bob_message(out_Rd);
+
+    if (out == NULL) {
+        return ZDOC_OUT_OF_MEMORY;
+    }
+
+    *response = out;
+    *response_len = strlen(out);
     return ZDOC_OK;
 }
