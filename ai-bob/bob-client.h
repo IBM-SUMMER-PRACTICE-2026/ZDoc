@@ -22,4 +22,7 @@ enum ZDoc_Error append_diagrams(const char * response, size_t response_len, Modu
 // Builds the entire prompt for Bob (instructions, path + function names + line numbers)
 char * build_bob_prompt(const char * path, Module * module);
 
+// Makes the call to Bob CLI
+ZDoc_Error bob_call(const char * prompt, char ** response);
+
 #endif
