@@ -6,3 +6,6 @@ NUL
 
 # Local test run output
 zdoc-out/
+/cli_test
+/cli_test.exe
+zdoc-test-tmp/
