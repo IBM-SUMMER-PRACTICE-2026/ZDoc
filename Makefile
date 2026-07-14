@@ -13,7 +13,7 @@ MODULES := $(patsubst %/Makefile,%,$(wildcard */Makefile */*/Makefile))
 
 .PHONY: all test clean list
 
-all test clean:
+all clean:
 	@if [ -z "$(strip $(MODULES))" ]; then \
 		echo "zdoc: no component Makefiles yet — nothing to $@ (see docs/ZDOC.md)"; \
 	else \
@@ -21,6 +21,20 @@ all test clean:
 			echo "==> $@ $$d"; \
 			$(MAKE) -C $$d $@ || exit $$?; \
 		done; \
+	fi
+
+# Unlike all/clean, keep going when a component's tests fail so every
+# component still gets tested, then exit non-zero if any of them failed.
+test:
+	@if [ -z "$(strip $(MODULES))" ]; then \
+		echo "zdoc: no component Makefiles yet — nothing to $@ (see docs/ZDOC.md)"; \
+	else \
+		fail=0; \
+		for d in $(MODULES); do \
+			echo "==> $@ $$d"; \
+			$(MAKE) -C $$d $@ || fail=1; \
+		done; \
+		exit $$fail; \
 	fi
 
 # Show which components are currently wired into the build.
