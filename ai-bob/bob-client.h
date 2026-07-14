@@ -7,4 +7,7 @@
 // Orchestrates the bob logic
 ZDoc_Error bob_client(const char * path, Module * module);
 
+// Builds the entire prompt for Bob (instructions, path + function names + line numbers)
+char * build_bob_prompt(const char * path, Module * module);
+
 #endif
