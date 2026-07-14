@@ -26,6 +26,23 @@
 #endif
 
 
+/**
+ * @brief Memory-map an entire file into memory read-only.
+ *
+ * On Windows this opens the file, maps it with CreateFileMapping/
+ * MapViewOfFile, and closes both the file and mapping handles once the view
+ * is established (the view itself keeps the data alive until
+ * free_file_buffer() is called). On other platforms it opens the file, stats
+ * it, and mmap()s it PROT_READ/MAP_PRIVATE, closing the descriptor
+ * immediately after mapping. An empty file (size 0) is treated the same as a
+ * failure and yields a zeroed buffer. On any failure a "zdoc:" diagnostic is
+ * printed to stderr.
+ *
+ * @param path Path of the file to map.
+ * @return A FileBuffer pointing at the mapped data with its length set, or
+ *         { NULL, 0 } if the file could not be opened, sized, mapped, or is
+ *         empty.
+ */
 FileBuffer read_file_buffer(const char *path) {
     FileBuffer fb = { NULL, 0 };
 #if defined(_WIN32)
@@ -110,6 +127,16 @@ FileBuffer read_file_buffer(const char *path) {
     return fb;
 }
 
+/**
+ * @brief Release a buffer obtained from read_file_buffer() and reset it.
+ *
+ * Unmaps the underlying memory (UnmapViewOfFile on Windows, munmap()
+ * elsewhere) and zeroes out fb->data and fb->len. Safe to call with a NULL
+ * pointer or a buffer whose data is already NULL, in which case it is a
+ * no-op.
+ *
+ * @param fb The FileBuffer to release.
+ */
 void free_file_buffer(FileBuffer *fb) {
     if (!fb || !fb->data)
         return;

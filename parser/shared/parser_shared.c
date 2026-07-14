@@ -7,6 +7,18 @@ int files_count = 0;
 struct Module* global_parsed_files_arry = NULL;
 char** paths_look_up = NULL;
 
+/**
+ * @brief Initialise the shared global parser resources.
+ *
+ * Reads the file count from global_file_table via number_of_files(),
+ * allocates global_parsed_files_arry (one Module slot per file) and
+ * paths_look_up (one lookup-path buffer of 4096 bytes per file). Leaves
+ * finished_files untouched. On any allocation failure the resources
+ * allocated so far are left in place (not rolled back).
+ *
+ * @return ZDOC_OK on success, ZDOC_FILE_COUNT_UNAVAILABLE if the file count
+ *         could not be read, or ZDOC_OUT_OF_MEMORY if an allocation failed.
+ */
 enum ZDoc_Error init_resources() {
     int count = number_of_files(&global_file_table);
     if (count < 0) return ZDOC_FILE_COUNT_UNAVAILABLE;

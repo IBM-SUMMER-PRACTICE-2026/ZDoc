@@ -47,6 +47,14 @@ static const LangEntry LANGUAGES[] = {
 };
 #define LANGUAGE_COUNT (sizeof LANGUAGES / sizeof *LANGUAGES)
 
+/**
+ * @brief Look up the display language for a source file by its extension.
+ *
+ * @param filename Name of the file being rendered (only the extension is
+ *                 inspected).
+ * @return The matching language tag from LANGUAGES, or NULL if filename has
+ *         no extension or none match (the code block then renders untagged).
+ */
 static const char *language_for_name(const char *filename) {
     const char *dot = strrchr(filename, '.');
     if(!dot) return NULL;
@@ -55,13 +63,24 @@ static const char *language_for_name(const char *filename) {
     return NULL;
 }
 
-/* Maps file_index -> the module that parsed it, keyed by each module's own
- * pathIndex (the file table index the daemon stamped onto it while
- * parsing) rather than by assuming modules[i] corresponds to files[i]. That
- * assumption held only because of how the daemon currently happens to fill
- * the array; this index doesn't depend on modules being ordered, dense, or
- * the same length as files->count. Slots for files with no matching module
- * (parsing failed, was skipped, or hasn't run yet) stay NULL. */
+/**
+ * @brief Build a file_index -> parsed Module lookup table.
+ *
+ * Keyed by each module's own pathIndex (the file table index the daemon
+ * stamped onto it while parsing) rather than by assuming modules[i]
+ * corresponds to files[i]. That assumption held only because of how the
+ * daemon currently happens to fill the array; this index doesn't depend on
+ * modules being ordered, dense, or the same length as files->count.
+ *
+ * @param modules Parsed module array.
+ * @param module_count Number of entries in modules.
+ * @param file_count Number of entries in the file table (size of the
+ *                   returned array).
+ * @return A newly heap-allocated array of file_count pointers; slots for
+ *         files with no matching module (parsing failed, was skipped, or
+ *         hasn't run yet) are NULL. Caller owns the array (not the Module
+ *         pointers it contains).
+ */
 static const Module **build_module_index(const Module *modules, size_t module_count, size_t file_count) {
     const Module **by_file = xmalloc(file_count * sizeof *by_file);
     for(size_t i = 0; i < file_count; i++) by_file[i] = NULL;
@@ -73,15 +92,26 @@ static const Module **build_module_index(const Module *modules, size_t module_co
     return by_file;
 }
 
-/* Where a given file's rendered page lives, relative to out_dir - the full
- * source path with .html appended (not the source extension swapped out:
- * two files that differ only in extension, e.g. student_grades.plx and
- * student_grades.plxmac, would otherwise both reduce to
- * student_grades.html and silently overwrite one another). fs_walk never
+/**
+ * @brief Compute a file's rendered page path, relative to out_dir.
+ *
+ * The full source path with .html appended (not the source extension
+ * swapped out: two files that differ only in extension, e.g.
+ * student_grades.plx and student_grades.plxmac, would otherwise both reduce
+ * to student_grades.html and silently overwrite one another). fs_walk never
  * produces two files with the same full relative path, so appending is
  * guaranteed unique where swapping wasn't. Used both as the actual write
- * location and as index.html's link target, so the two can never disagree
- * with each other. */
+ * location and as index.html's link target, so the two can never disagree.
+ *
+ * @param dirs Directory table.
+ * @param files File table.
+ * @param file_index Index of the file in files.
+ * @param out Output buffer for the relative path.
+ * @param out_size Size of out in bytes.
+ * @return ZDOC_OK on success, or ZDOC_PATH_TOO_LONG if out was too small
+ *         (propagated from modtree_file_path, or from the .html suffix
+ *         itself overflowing).
+ */
 static enum ZDoc_Error html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                                 size_t file_index, char *out, size_t out_size) {
     char src_path[HTML_PATH_MAX];
@@ -91,9 +121,14 @@ static enum ZDoc_Error html_output_relpath(const modtree_dir_table_t *dirs, cons
     return (n < 0 || (size_t)n >= out_size) ? ZDOC_PATH_TOO_LONG : ZDOC_OK;
 }
 
-/* Best effort recursive mkdir - ignores failures (EEXIST is the common,
-  expected one); a genuine problem surfaces later when index.html itself
-  fails to open for writing. */
+/**
+ * @brief Recursively create a directory, best effort.
+ *
+ * Ignores failures (EEXIST is the common, expected one); a genuine problem
+ * surfaces later when index.html itself fails to open for writing.
+ *
+ * @param dir Directory path to create.
+ */
 static void mkdir_p(const char *dir) {
     char tmp[HTML_PATH_MAX];
     snprintf(tmp, sizeof tmp, "%s", dir);
@@ -112,9 +147,15 @@ static void mkdir_p(const char *dir) {
     MKDIR(tmp);
 }
 
-/* HTML-escape s (NULL is rendered as nothing). Every model string goes
-  through here - names, briefs, signatures and descriptions are arbitrary
-  source text. */
+/**
+ * @brief Write s to out with the five HTML special characters escaped.
+ *
+ * Every model string goes through here - names, briefs, signatures and
+ * descriptions are arbitrary source text.
+ *
+ * @param out Output stream.
+ * @param s String to escape (NULL is rendered as nothing).
+ */
 static void put_escaped(FILE *out, const char *s) {
     if(!s) return;
     for(; *s; s++) {
@@ -140,7 +181,16 @@ typedef struct {
     int *dir_child, *dir_sib, *file_child, *file_sib;
     int dir_root, file_root;
 } adjacency_t;
-//Builds the adjacency table from the tables' parent links. The table is stack-allocated by the caller, and its arrays are heap-allocated here.
+/**
+ * @brief Build the adjacency table from the tables' parent links.
+ *
+ * The table struct itself is stack-allocated by the caller; this function
+ * heap-allocates its dir_child/dir_sib/file_child/file_sib arrays.
+ *
+ * @param a Adjacency table to populate.
+ * @param dirs Directory table.
+ * @param files File table.
+ */
 static void adjacency_build(adjacency_t *a, const modtree_dir_table_t *dirs,
                              const modtree_file_table_t *files) {
     a->dir_child  = xmalloc(dirs->count * sizeof(int));
@@ -179,7 +229,12 @@ static void adjacency_build(adjacency_t *a, const modtree_dir_table_t *dirs,
         }
     }
 }
-//Frees the adjacency table's arrays (the table itself is stack-allocated).
+/**
+ * @brief Free the adjacency table's heap-allocated arrays.
+ *
+ * @param a Adjacency table whose arrays should be freed (the struct itself
+ *          is not freed, since the caller owns it on the stack).
+ */
 static void adjacency_free(adjacency_t *a) {
     free(a->dir_child);
     free(a->dir_sib);
@@ -187,8 +242,20 @@ static void adjacency_free(adjacency_t *a) {
     free(a->file_sib);
 }
 
-/*Renders a single symbol's documentation section.
-The caller is responsible for wrapping the top-level call in <ul>...</ul> and for the adjacency table.*/
+/**
+ * @brief Render a single symbol's documentation section.
+ *
+ * Emits a <details class="sym"> block covering signature, kind, line,
+ * parameters, returns, notes, and block diagram (only the fields that are
+ * actually present on s).
+ *
+ * @param o Output stream.
+ * @param s Symbol to render.
+ * @param language Language tag used to set the signature code block's
+ *                 class (may be NULL).
+ * @note The caller is responsible for wrapping the top-level call in
+ *       <ul>...</ul>.
+ */
 static void render_symbol(FILE *o, const Symbol *s, const char *language) {
     fputs("<details class=\"sym\"", o);
     if(s->name && s->name[0]) {
@@ -260,10 +327,19 @@ static void render_symbol(FILE *o, const Symbol *s, const char *language) {
     }
     fputs("</details>\n", o);
 }
-/*Renders the tree page as a nested, linked bullet list - directories in
- bold, files linking to their own rendered page. Mirrors md_renderer's
- print_tree, walked here via the adjacency table instead of a rescan per
- node.*/
+/**
+ * @brief Render the tree page as a nested, linked bullet list.
+ *
+ * Directories in bold, files linking to their own rendered page. Mirrors
+ * md_renderer's print_tree, walked here via the adjacency table instead of
+ * a rescan per node.
+ *
+ * @param idx Output stream (the index.html being written).
+ * @param a Adjacency table built by adjacency_build.
+ * @param dirs Directory table.
+ * @param files File table.
+ * @param d Directory index to render (recurses into its children).
+ */
 static void render_index_tree(FILE *idx, const adjacency_t *a, const modtree_dir_table_t *dirs,
                                const modtree_file_table_t *files, int d) {
     fputs("<li><details class=\"dir\" open><summary>", idx);
@@ -319,10 +395,17 @@ static const char MERMAID_JS[] =
     "d.addEventListener('toggle',function(){if(d.open)run(d);});});\n"
     "run(document);\n";
 
-/* Opens the <head> for a page - title, embedded CSS, and (if the page
- * carries at least one diagram) the <noscript> fallback rule that hides
- * mermaid blocks when JS is off. Every emitted page shares this shell so
- * they stay visually consistent despite now being separate files. */
+/**
+ * @brief Emit the opening <!DOCTYPE>..<h1> shell for a page.
+ *
+ * Embeds the CSS and, when has_diagram is set, the <noscript> rule that
+ * hides Mermaid diagram blocks when JS is off. Every emitted page opens
+ * with this; write_foot closes the shell it starts.
+ *
+ * @param o Output stream.
+ * @param title Page title (used for both <title> and the <h1>).
+ * @param has_diagram Whether the page carries at least one block diagram.
+ */
 static void write_head(FILE *o, const char *title, int has_diagram) {
     fputs("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>", o);
     put_escaped(o, title);
@@ -336,6 +419,13 @@ static void write_head(FILE *o, const char *title, int has_diagram) {
     fputs("</h1>\n", o);
 }
 
+/**
+ * @brief Close out a page opened with write_head.
+ *
+ * @param o Output stream.
+ * @param has_diagram Whether to emit the Mermaid module script (only needed
+ *                     when the page actually carries a diagram).
+ */
 static void write_foot(FILE *o, int has_diagram) {
     if(has_diagram) {
         fputs("<script type=\"module\">\n", o);
@@ -345,17 +435,40 @@ static void write_foot(FILE *o, int has_diagram) {
     fputs("</body>\n</html>\n", o);
 }
 
-/* Whether status falls within the contiguous enum ZDoc_Error range, as
-  opposed to garbage (e.g. an uninitialized Module.status). Duplicated in
-  md_renderer for the same reason as language_for_name - no shared stage
-  left to hold one copy. */
+/**
+ * @brief Check whether status is a recognized ZDoc_Error value.
+ *
+ * @param status Status code to validate.
+ * @return Nonzero if status falls within the contiguous enum ZDoc_Error
+ *         range, zero if it's garbage (e.g. an uninitialized Module.status).
+ * @note Duplicated in md_renderer for the same reason as language_for_name
+ *       - no shared stage left to hold one copy.
+ */
 static int zdoc_status_is_valid(enum ZDoc_Error status) {
     return status >= ZDOC_UNSUPPORTED_LANGUAGE && status <= ZDOC_UNSUPPORTED_FORMAT;
 }
 
-/* Writes one file's own out_dir/<relpath>.html: page shell plus that
- * file's symbols. Mirrors md_renderer's write_module_file - same relpath
- * scheme, same mkdir-of-parent-then-fopen shape. */
+/**
+ * @brief Write one file's own out_dir/<relpath>.html.
+ *
+ * Emits the page shell plus that file's symbols, or an error notice (with
+ * the recorded status code, if any) when no module could be matched to the
+ * file. Mirrors md_renderer's write_module_file - same relpath scheme, same
+ * mkdir-of-parent-then-fopen shape.
+ *
+ * @param dirs Directory table.
+ * @param files File table.
+ * @param by_file file_index -> matched Module lookup, from
+ *                build_module_index.
+ * @param modules Raw parsed module array (used to recover a failed file's
+ *                status when by_file has no match for it).
+ * @param module_count Number of entries in modules.
+ * @param file_index Index of the file being rendered.
+ * @param out_dir Root output directory.
+ * @return ZDOC_OK on success, ZDOC_PATH_TOO_LONG if the output path
+ *         overflowed, or ZDOC_FILE_WRITE_FAILED if the page could not be
+ *         opened, written, or closed.
+ */
 static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                             const Module **by_file, const Module *modules, size_t module_count,
                             size_t file_index, const char *out_dir) {
@@ -403,9 +516,20 @@ static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const mo
     return rc;
 }
 
-/* Writes out_dir/index.html: page shell plus the nested directory/file tree,
- * files linking out to their own rendered pages. No diagrams live on this
- * page, so it never needs the Mermaid script. */
+/**
+ * @brief Write out_dir/index.html.
+ *
+ * Emits the page shell plus the nested directory/file tree, with files
+ * linking out to their own rendered pages. No diagrams live on this page,
+ * so it never needs the Mermaid script.
+ *
+ * @param dirs Directory table.
+ * @param files File table.
+ * @param out_dir Root output directory.
+ * @param title Page title (falls back to "Documentation" if NULL/empty).
+ * @return ZDOC_OK on success, or ZDOC_FILE_WRITE_FAILED if index.html could
+ *         not be opened, written, or closed.
+ */
 static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         const char *out_dir, const char *title) {
     char path[HTML_PATH_MAX];
@@ -441,7 +565,22 @@ static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtre
     return rc;
 }
 
-//Renders the tree as one out_dir/index.html plus one rendered page per file (embedded CSS; Mermaid JS is pulled in per-page only when that file carries block diagrams).
+/**
+ * @brief Render the whole tree as HTML.
+ *
+ * Produces one out_dir/index.html plus one rendered page per file (embedded
+ * CSS; Mermaid JS is pulled in per-page only when that file carries block
+ * diagrams).
+ *
+ * @param dirs Directory table.
+ * @param files File table.
+ * @param modules Parsed module array.
+ * @param module_count Number of entries in modules.
+ * @param out_dir Root output directory (created if missing).
+ * @param title Title used for index.html's heading (may be NULL).
+ * @return ZDOC_OK on success, or the first ZDoc_Error hit while writing a
+ *         page or the index.
+ */
 enum ZDoc_Error html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                  const Module *modules, size_t module_count,
                  const char *out_dir, const char *title) {

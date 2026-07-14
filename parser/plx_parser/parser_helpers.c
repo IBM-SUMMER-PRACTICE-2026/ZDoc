@@ -10,11 +10,16 @@
 /*          PLXMAC PROLOG PARSING            */
 /*********************************************/
 
-/*
- * Method Prolog banner detection (see docs/plx-doccomment-convention.md,
- * "Method Prolog Blocks"). The block is one multi-line comment with quirky
- * listing-border delimiters, so it is recognized by the banner text, not
- * the delimiter bytes.
+/**
+ * @brief Detect the banner line that opens a Method Prolog block.
+ *
+ * Method Prolog blocks (see docs/plx-doccomment-convention.md, "Method
+ * Prolog Blocks") are one multi-line comment with quirky listing-border
+ * delimiters, so the start is recognized by the "Start of Method Prolog"
+ * banner text, not the delimiter bytes.
+ *
+ * @param line The line to test.
+ * @return Non-zero if line opens a Method Prolog block, 0 otherwise.
  */
 int is_prolog_start(Line line)
 {
@@ -25,6 +30,15 @@ int is_prolog_start(Line line)
     return contains_ci(s, end, "Start of Method Prolog");
 }
 
+/**
+ * @brief Detect the banner line that closes a Method Prolog block.
+ *
+ * Mirrors is_prolog_start(): recognized by the "End of Method Prolog"
+ * banner text rather than the comment delimiter bytes.
+ *
+ * @param line The line to test.
+ * @return Non-zero if line closes a Method Prolog block, 0 otherwise.
+ */
 int is_prolog_end(Line line)
 {
     const char *end = line.data + line.len;
@@ -34,9 +48,13 @@ int is_prolog_end(Line line)
     return contains_ci(s, end, "End of Method Prolog");
 }
 
-/*
- * Strip the leading '*' box border from a Method Prolog interior line and
- * return the trimmed content (heap-allocated; "" for a padding-only line).
+/**
+ * @brief Strip the leading '*' box border from a Method Prolog interior
+ *        line.
+ *
+ * @param line One interior line of a Method Prolog block.
+ * @return The trimmed content as a slice into line's backing buffer; an
+ *         empty (zero-length) slice for a padding-only line.
  */
 Line prolog_content(Line line)
 {
@@ -54,7 +72,16 @@ Line prolog_content(Line line)
 /*         PROC STATEMENT NAMES              */
 /*********************************************/
 
-/* Match "<IDENT> : PROC" at the start of a code line; returns the name. */
+/**
+ * @brief Match "<IDENT> : PROC" at the start of a code line.
+ *
+ * Rejects identifiers that merely start with "PROC" but continue as a
+ * longer word (e.g. "PROCESS").
+ *
+ * @param line The code line to match against.
+ * @return The identifier as a slice into line's backing buffer, or
+ *         { NULL, 0 } if line does not match.
+ */
 Line match_proc_start(Line line)
 {
     Line none = { NULL, 0 };
@@ -79,10 +106,14 @@ Line match_proc_start(Line line)
     return (Line){ (char *)s, (size_t)(idEnd - s) };
 }
 
-/*
- * Match "?AsaXMac ProcEntry(<IDENT>)" at the start of a code line; returns
- * the name as a slice into `line`, or { NULL, 0 }. Case-insensitive. ProcEnd
- * deliberately does not match.
+/**
+ * @brief Match "?AsaXMac ProcEntry(<IDENT>)" at the start of a code line.
+ *
+ * Case-insensitive. "ProcEnd" deliberately does not match this pattern.
+ *
+ * @param line The code line to match against.
+ * @return The identifier as a slice into line's backing buffer, or
+ *         { NULL, 0 } if line does not match.
  */
 Line match_procentry(Line line)
 {
@@ -120,6 +151,23 @@ Line match_procentry(Line line)
 /*********************************************/
 /*               SIGNATURE                   */
 /*********************************************/
+/**
+ * @brief Accumulate one more line of a PL/X procedure signature into sig.
+ *
+ * Scans line and appends its content to sig (joined to any prior content
+ * with a single space), tracking comment/string/paren-depth state in *st
+ * across calls so the signature can span multiple source lines. Block
+ * comment text is dropped from the output; quoted string content is kept
+ * verbatim. Scanning stops as soon as a ';' is seen at paren depth 0
+ * outside a comment or string, which marks the end of the signature.
+ *
+ * @param sig The signature buffer being built up across calls.
+ * @param line The next line of source to consume.
+ * @param st Comment/string/depth state carried across calls; updated in
+ *           place.
+ * @return Non-zero once the terminating ';' has been consumed (the
+ *         signature is complete), 0 if more lines are needed.
+ */
 int sig_consume(StrBuf *sig, Line line, SigState *st)
 {
     const char *p = line.data;
@@ -191,10 +239,17 @@ const struct {
     { "Outputs",  FIELD_OUTPUT },
 };
 
-/*
- * Try to parse "<LABEL><ws>: <content>". Returns FIELD_NONE when the line is
- * not label-shaped (treated as a continuation), FIELD_UNKNOWN for a labeled
- * line whose label is not in the table. On success *rest points past the ':'.
+/**
+ * @brief Try to parse a "<LABEL><ws>: <content>" line against LABEL_TABLE.
+ *
+ * @param content The line content to parse.
+ * @param rest Set to the slice past the ':' on success (whenever the
+ *             return value is not FIELD_NONE); left untouched when
+ *             content is not label-shaped.
+ * @return FIELD_NONE when content is not label-shaped (treated as a
+ *         continuation of the current field), FIELD_UNKNOWN for a labeled
+ *         line whose label is not in LABEL_TABLE, or the matching FieldId
+ *         otherwise.
  */
 FieldId parse_label(Line content, Line *rest)
 {
@@ -231,10 +286,17 @@ FieldId parse_label(Line content, Line *rest)
 /*          COMMENT LINE HANDLING            */
 /*********************************************/
 
-/*
- * If the line is a single-line comment (opens and closes on this line),
- * return its inner content (heap-allocated, trimmed, trailing @TAG
- * stripped). Otherwise return NULL.
+/**
+ * @brief Extract the inner content of a single-line comment.
+ *
+ * Recognizes a line whose comment opens and closes on that same line,
+ * trims the interior, and strips a trailing change-activity tag such as
+ * "@L0A" or "@00C" if present.
+ *
+ * @param line The line to inspect.
+ * @return The trimmed, tag-stripped interior as a slice into line's
+ *         backing buffer, or { NULL, 0 } if line is not a single-line
+ *         comment.
  */
 Line comment_content(Line line)
 {
@@ -274,7 +336,16 @@ Line comment_content(Line line)
     return content;
 }
 
-/* A divider/banner line: content made of '*' only (plus whitespace). */
+/**
+ * @brief Test whether content is a divider/banner line.
+ *
+ * A banner line's content consists solely of '*' characters (whitespace
+ * has already been trimmed out of content by the caller).
+ *
+ * @param content The (already comment-extracted) line content to test.
+ * @return Non-zero if content is made up entirely of '*' characters
+ *         (including the empty string), 0 otherwise.
+ */
 int is_banner(Line content)
 {
     for (size_t i = 0; i < content.len; i++) {
@@ -290,6 +361,11 @@ int is_banner(Line content)
 /*          DOC BLOCK ACCUMULATOR            */
 /*********************************************/
 
+/**
+ * @brief Initialize a DocBlock to its empty, inactive state.
+ *
+ * @param b The DocBlock to initialize.
+ */
 void block_init(DocBlock *b)
 {
     b->active = 0;
@@ -303,6 +379,11 @@ void block_init(DocBlock *b)
     sl_init(&b->inputLines);
 }
 
+/**
+ * @brief Free a DocBlock's accumulated content and reset it to empty.
+ *
+ * @param b The DocBlock to reset.
+ */
 void block_reset(DocBlock *b)
 {
     sb_free(&b->name);
@@ -312,6 +393,20 @@ void block_reset(DocBlock *b)
     block_init(b);
 }
 
+/**
+ * @brief Append one line of text to the given field of a DocBlock.
+ *
+ * Trims leading/trailing whitespace from text before appending. An empty
+ * (post-trim) text still opens field as the block's current field so
+ * later continuation lines are routed to it, but contributes no content
+ * itself. For FIELD_INPUT inside a Method Prolog block, a continuation
+ * line with no " - " separator is treated as a wrapped type and joined
+ * onto the previous input line instead of starting a new one.
+ *
+ * @param b The DocBlock being built up.
+ * @param field The field this text belongs to.
+ * @param text The raw line content to append.
+ */
 void block_append(DocBlock *b, FieldId field, Line text)
 {
     const char *tend = text.data + text.len;
@@ -355,9 +450,16 @@ void block_append(DocBlock *b, FieldId field, Line text)
 /*        SYMBOL / MODULE CONSTRUCTION       */
 /*********************************************/
 
-/*
- * If the line is a "Where <name> is:" clause, return the heap-allocated
- * parameter name; otherwise return NULL. Case-insensitive.
+/**
+ * @brief Match a "Where <name> is:" clause line and extract the name.
+ *
+ * Case-insensitive; requires the line to end (after trimming trailing
+ * whitespace) with "is:" preceded by "Where ".
+ *
+ * @param line The NUL-terminated line to match.
+ * @return A newly heap-allocated copy of the trimmed name, or NULL if
+ *         line does not match the "Where ... is:" shape or the name is
+ *         empty.
  */
 char *match_where_clause(const char *line)
 {
@@ -388,8 +490,14 @@ char *match_where_clause(const char *line)
     return name;
 }
 
-/* Skip an enumeration marker ("1) ", "2) ", ...) if the line starts with
- * one; returns the original pointer otherwise. */
+/**
+ * @brief Skip a leading enumeration marker such as "1) " or "2) ".
+ *
+ * @param s The line to check.
+ * @return A pointer past the marker and any following whitespace if s
+ *         starts with a digit sequence followed by ')'; otherwise s
+ *         unchanged.
+ */
 const char *strip_enum_marker(const char *s)
 {
     const char *p = s;
@@ -403,6 +511,20 @@ const char *strip_enum_marker(const char *s)
     return skip_ws(p + 1);
 }
 
+/**
+ * @brief Append a new WhereParam to a growable array, taking ownership of
+ *        name.
+ *
+ * Doubles the array's capacity (starting at 4) when full.
+ *
+ * @param arr Pointer to the growable WhereParam array.
+ * @param count Pointer to the current element count; incremented on
+ *              return.
+ * @param cap Pointer to the current capacity; updated when the array
+ *            grows.
+ * @param name Parameter name; ownership passes to the new array slot.
+ * @return The index of the newly added element.
+ */
 int where_param_add(WhereParam **arr, int *count, int *cap, char *name)
 {
     if (*count == *cap) {
@@ -414,10 +536,24 @@ int where_param_add(WhereParam **arr, int *count, int *cap, char *name)
     return (*count)++;
 }
 
-/*
- * Input format 1: a comma-separated parameter name list followed by
- * "Where <name> is:" description blocks with enumerated items (see
- * docs/plx-doccomment-convention.md, "Input Field Formats").
+/**
+ * @brief Build Symbol input parameters from the "declared names + Where
+ *        blocks" input format.
+ *
+ * Input format 1 (see docs/plx-doccomment-convention.md, "Input Field
+ * Formats"): a comma-separated parameter name list in lines[0..firstWhere)
+ * followed by "Where <name> is:" description blocks, each possibly
+ * containing multiple enumerated ("1) ", "2) ", ...) or wrapped-continuation
+ * items, in lines[firstWhere..count). A "Where" clause whose name was not
+ * declared is still added, with a warning printed to stderr unless no
+ * names were declared at all. The resulting parameters are added to sym
+ * in declaration/appearance order.
+ *
+ * @param lines The collected input-field lines for one doc-comment block.
+ * @param firstWhere Index into lines of the first "Where ... is:" line.
+ * @param sym The Symbol to add the built input parameters to.
+ * @param filename Source filename, used only for warning diagnostics.
+ * @param lineNo Source line number, used only for warning diagnostics.
  */
 void build_where_params(const StrList *lines, int firstWhere,
                                Symbol *sym, const char *filename, int lineNo)
@@ -488,12 +624,22 @@ void build_where_params(const StrList *lines, int firstWhere,
     free(params);
 }
 
-/*
- * Build InputParam entries from the collected input lines, trying the input
- * field formats from docs/plx-doccomment-convention.md in order:
- *   1. name list + "Where <name> is:" blocks
+/**
+ * @brief Build Symbol input parameters from the collected Input field
+ *        lines.
+ *
+ * Tries the input field formats from docs/plx-doccomment-convention.md in
+ * order:
+ *   1. a declared name list followed by "Where <name> is:" blocks
+ *      (delegated to build_where_params())
  *   2. one "name - description" row per line
- *   3. "None" (no parameters) or free text kept as a single entry
+ *   3. "None" (no parameters) or otherwise free text, kept as a single
+ *      unnamed entry
+ *
+ * @param lines The collected Input field lines for one doc-comment block.
+ * @param sym The Symbol whose input array is populated.
+ * @param filename Source filename, forwarded for warning diagnostics.
+ * @param lineNo Source line number, forwarded for warning diagnostics.
  */
 void build_input_params(const StrList *lines, Symbol *sym,
                                const char *filename, int lineNo)
@@ -546,11 +692,25 @@ void build_input_params(const StrList *lines, Symbol *sym,
     symbol_shrink_inputs_to_fit(sym);
 }
 
-/*
- * Turn the pending doc block into a Symbol. signature may be NULL for an
- * orphan block that was never followed by a PROC statement. procName is
- * still used here to cross-check against the doc-comment name and is not
- * stored on the resulting Symbol.
+/**
+ * @brief Turn the pending doc block into a Symbol appended to mod.
+ *
+ * Steals the accumulated name/description/output strings out of b, strips
+ * a trailing ':' or whitespace from the name, builds the input parameter
+ * list via build_input_params(), and cross-checks the doc-comment name
+ * against procName (warning to stderr on mismatch, or if procName carries
+ * no data at all, meaning the block was never followed by a PROC
+ * statement). Resets b to empty before returning.
+ *
+ * @param b The pending DocBlock to convert; reset to empty on return.
+ * @param mod The Module to append the new Symbol to.
+ * @param procName The matched procedure name, or { NULL, 0 } for an
+ *                 orphan block with no following PROC statement.
+ * @param signature The captured procedure signature, or NULL for an
+ *                   orphan block.
+ * @param lineNo The line number of the PROC statement (or of b's start,
+ *               for an orphan block), used for the resulting Symbol's
+ *               line and for warning diagnostics.
  */
 void block_to_symbol(DocBlock *b, Module *mod, Line procName,
                      const char *signature, int lineNo)
@@ -597,10 +757,22 @@ void block_to_symbol(DocBlock *b, Module *mod, Line procName,
     block_reset(b);
 }
 
-/*
- * Feed one line of doc-comment content (label, continuation or unknown)
- * into the pending block. Shared by the single-line comment path and the
- * Method Prolog path of the main parse loop.
+/**
+ * @brief Feed one line of doc-comment content into the pending DocBlock.
+ *
+ * Shared by the single-line comment path and the Method Prolog path of
+ * the main parse loop in plx_parse_file(). Classifies content via
+ * parse_label(): a labeled line starts or continues a field (flushing any
+ * already-closed pending block to mod first); an unknown label stops
+ * feeding the previous field; anything else is treated as a continuation
+ * of the currently open field, if any.
+ *
+ * @param blk The pending DocBlock to feed.
+ * @param mod The Module a flushed block (if any) is appended to as a
+ *            Symbol.
+ * @param content One line of doc-comment content.
+ * @param lineNo The source line number, used as the new block's start
+ *               line and for diagnostics.
  */
 void feed_doc_line(DocBlock *blk, Module *mod, Line content,
                    int lineNo)

@@ -32,6 +32,18 @@ typedef struct {
     int first_call;
 } fs_dir_t;
 
+/**
+ * @brief Open a directory for iteration (Windows back end).
+ *
+ * Appends a "\*" wildcard to disk_path and starts a FindFirstFileA search,
+ * leaving out primed so the first fs_dir_next call returns that initial
+ * result instead of calling FindNextFileA.
+ *
+ * @param disk_path Directory to open, without a trailing wildcard.
+ * @param out Iteration handle to initialise.
+ * @return 0 on success, -1 if the search path overflowed or the search
+ *         could not be started.
+ */
 static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
     char search_path[32768 + 8];
     int n = snprintf(search_path, sizeof(search_path), "%s\\*", disk_path);
@@ -43,6 +55,18 @@ static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
     return 0;
 }
 
+/**
+ * @brief Resolve a root path to its Windows extended-length ("\\?\") form.
+ *
+ * Normalises root_disk_path with GetFullPathNameA and prefixes it with
+ * "\\?\" (unless it is already so prefixed) so subsequent directory
+ * operations are not bound by MAX_PATH.
+ *
+ * @param root_disk_path Root path as given by the caller.
+ * @param out Buffer that receives the extended-length path.
+ * @param out_size Size in bytes of out.
+ * @return 0 on success, -1 if resolution failed or out was too small.
+ */
 static int win32_root_prefixed(const char* root_disk_path, char* out, size_t out_size) {
     char full_path[32768];
     DWORD full_len = GetFullPathNameA(root_disk_path, sizeof(full_path), full_path, NULL);
@@ -58,7 +82,19 @@ static int win32_root_prefixed(const char* root_disk_path, char* out, size_t out
     return 0;
 }
 
-/* Returns 1 with name/is_directory filled in, 0 when done. */
+/**
+ * @brief Advance to the next directory entry (Windows back end).
+ *
+ * Consumes the primed result from fs_dir_open on the first call, then calls
+ * FindNextFileA on subsequent calls; "." and ".." entries are skipped
+ * transparently.
+ *
+ * @param dir Iteration handle previously opened with fs_dir_open.
+ * @param name_out Buffer that receives the entry's bare name.
+ * @param name_out_size Size in bytes of name_out.
+ * @param is_directory Set to nonzero if the entry is a directory, zero otherwise.
+ * @return 1 with name_out/is_directory filled in, 0 when done.
+ */
 static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int* is_directory) {
     for (;;) {
         if (!dir->first_call) {
@@ -76,6 +112,11 @@ static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int*
     }
 }
 
+/**
+ * @brief Close a directory iteration handle (Windows back end).
+ *
+ * @param dir Iteration handle previously opened with fs_dir_open.
+ */
 static void fs_dir_close(fs_dir_t* dir) {
     FindClose(dir->handle);
 }
@@ -90,6 +131,16 @@ typedef struct {
     char base_path[FS_WALK_PATH_BUF];
 } fs_dir_t;
 
+/**
+ * @brief Open a directory for iteration (POSIX back end).
+ *
+ * Opens disk_path with opendir and records it in out->base_path so
+ * fs_dir_next can stat each entry by its full path.
+ *
+ * @param disk_path Directory to open.
+ * @param out Iteration handle to initialise.
+ * @return 0 on success, -1 if the directory could not be opened.
+ */
 static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
     out->handle = opendir(disk_path);
     if (!out->handle) return -1;
@@ -97,7 +148,20 @@ static int fs_dir_open(const char* disk_path, fs_dir_t* out) {
     return 0;
 }
 
-/* Returns 1 with name/is_directory filled in, 0 when done, -1 on error. */
+/**
+ * @brief Advance to the next directory entry (POSIX back end).
+ *
+ * Calls readdir, skipping "." and "..", then stats the entry's full path
+ * (base_path joined with the entry name) to determine whether it is a
+ * directory.
+ *
+ * @param dir Iteration handle previously opened with fs_dir_open.
+ * @param name_out Buffer that receives the entry's bare name.
+ * @param name_out_size Size in bytes of name_out.
+ * @param is_directory Set to nonzero if the entry is a directory, zero otherwise.
+ * @return 1 with name_out/is_directory filled in, 0 when done, -1 on error
+ *         (full path overflow or stat failure).
+ */
 static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int* is_directory) {
     struct dirent* e;
     while ((e = readdir(dir->handle)) != NULL) {
@@ -119,6 +183,11 @@ static int fs_dir_next(fs_dir_t* dir, char* name_out, size_t name_out_size, int*
     return 0;
 }
 
+/**
+ * @brief Close a directory iteration handle (POSIX back end).
+ *
+ * @param dir Iteration handle previously opened with fs_dir_open.
+ */
 static void fs_dir_close(fs_dir_t* dir) {
     closedir(dir->handle);
 }
@@ -129,8 +198,18 @@ static void fs_dir_close(fs_dir_t* dir) {
  * Shared logic — identical on every platform.
  * ============================================================ */
 
-/* Returns 1 if name's extension matches one of extensions, 0 otherwise.
- * If extension_count is 0, every file matches (no filtering). */
+/**
+ * @brief Check whether a file name's extension matches one of a filter list.
+ *
+ * If extension_count is 0, every file matches (no filtering).
+ *
+ * @param name File name to test.
+ * @param extensions Array of extension strings to match against, each
+ *                    including the leading dot (e.g. ".plx").
+ * @param extension_count Number of entries in extensions.
+ * @return 1 if name's extension matches one of extensions (or filtering is
+ *         disabled), 0 otherwise.
+ */
 static int matches_extension(const char* name, const char** extensions, size_t extension_count) {
     if (extension_count == 0) return 1;
 
@@ -143,11 +222,18 @@ static int matches_extension(const char* name, const char** extensions, size_t e
     return 0;
 }
 
-/* Simple shell-style wildcard match: '*' matches any run of characters
- * (including none, including path separators), '?' matches exactly one
- * character. Not a full gitignore-style segment-aware "**" glob, but
- * covers the common exclude patterns (e.g. "*.test.c" or a bare directory
- * name like "test"). */
+/**
+ * @brief Simple shell-style wildcard match.
+ *
+ * '*' matches any run of characters (including none, including path
+ * separators), '?' matches exactly one character. Not a full
+ * gitignore-style segment-aware "**" glob, but covers the common exclude
+ * patterns (e.g. "*.test.c" or a bare directory name like "test").
+ *
+ * @param pat Wildcard pattern.
+ * @param str String to test against pat.
+ * @return 1 if str matches pat in its entirety, 0 otherwise.
+ */
 static int wild_match(const char* pat, const char* str) {
     const char* star_pat = NULL;
     const char* star_str = NULL;
@@ -170,8 +256,18 @@ static int wild_match(const char* pat, const char* str) {
     return *pat == '\0';
 }
 
-/* An entry is excluded if any pattern matches either its bare name or its
- * accumulated disk path from the walk root. */
+/**
+ * @brief Check whether an entry matches any of the caller's exclude patterns.
+ *
+ * An entry is excluded if any pattern matches either its bare name or its
+ * accumulated disk path from the walk root.
+ *
+ * @param name Entry's bare name.
+ * @param disk_path Entry's accumulated disk path from the walk root.
+ * @param excludes Array of wild_match glob patterns.
+ * @param exclude_count Number of entries in excludes.
+ * @return 1 if the entry is excluded, 0 otherwise.
+ */
 static int is_excluded(const char* name, const char* disk_path,
                         const char** excludes, size_t exclude_count) {
     for (size_t i = 0; i < exclude_count; i++) {
@@ -180,6 +276,30 @@ static int is_excluded(const char* name, const char* disk_path,
     return 0;
 }
 
+/**
+ * @brief Recursively walk one directory, interning its matching entries.
+ *
+ * Iterates disk_path's entries, skipping any that match excludes. Files
+ * whose extension matches extensions are interned into files under
+ * current_dir_index. Subdirectories are interned into dirs and, when
+ * recursive is nonzero, descended into with a fresh recursive call;
+ * when recursive is 0, subdirectories are skipped entirely (neither
+ * interned nor descended into).
+ *
+ * @param disk_path Disk path of the directory to walk.
+ * @param current_dir_index Index in dirs of disk_path itself, used as the
+ *                           parent for any entries interned here.
+ * @param dirs Directory table to intern subdirectories into.
+ * @param files File table to intern matching files into.
+ * @param extensions Array of extension strings to filter files by.
+ * @param extension_count Number of entries in extensions; 0 matches every file.
+ * @param excludes Array of wild_match glob patterns to skip entries by.
+ * @param exclude_count Number of entries in excludes.
+ * @param recursive When 0, subdirectories are neither interned nor descended into.
+ * @return ZDOC_OK on success, ZDOC_FS_WALK_FAILED if the directory could not
+ *         be opened or read, ZDOC_OUT_OF_MEMORY if interning failed, or
+ *         ZDOC_PATH_TOO_LONG if a child path overflowed its buffer.
+ */
 static enum ZDoc_Error walk_dir(const char* disk_path, int current_dir_index,
                      modtree_dir_table_t* dirs, modtree_file_table_t* files,
                      const char** extensions, size_t extension_count,
@@ -222,9 +342,15 @@ static enum ZDoc_Error walk_dir(const char* disk_path, int current_dir_index,
     return (result == -1) ? ZDOC_FS_WALK_FAILED : ZDOC_OK;
 }
 
-/* Extracts the last path component of disk_path, e.g.
- * "/tmp/myproject" -> "myproject", "C:\\src\\myproject" -> "myproject".
- * Falls back to the whole string if no separator is found. */
+/**
+ * @brief Extract the last path component of a disk path.
+ *
+ * E.g. "/tmp/myproject" -> "myproject", "C:\\src\\myproject" -> "myproject".
+ * Falls back to the whole string if no separator is found.
+ *
+ * @param disk_path Path to extract the last component from.
+ * @return Pointer into disk_path at the start of its last component.
+ */
 static const char* last_path_component(const char* disk_path) {
     const char* slash = strrchr(disk_path, '/');
     const char* backslash = strrchr(disk_path, '\\');
@@ -234,6 +360,36 @@ static const char* last_path_component(const char* disk_path) {
     return last;
 }
 
+/**
+ * @brief Walk a directory tree, interning matching directories and files.
+ *
+ * Resolves root_disk_path to an absolute path, records its parent in
+ * fs_walk_root_prefix, seeds the root directory itself into dirs (its own
+ * name, parent = -1), then walks its contents via walk_dir. On Windows the
+ * walk uses the extended-length ("\\?\") form of the root so it is not
+ * bound by MAX_PATH.
+ *
+ * @param root_disk_path Disk path of the directory to walk.
+ * @param dirs Directory table to intern subdirectories into.
+ * @param files File table to intern matching files into.
+ * @param extensions Array of extension strings, each including the leading
+ *                    dot (e.g. ".plx", ".pli"); comparison is case-sensitive.
+ * @param extension_count Number of entries in extensions; 0 (extensions may
+ *                         then be NULL) matches every file.
+ * @param excludes Glob patterns checked against both the bare entry name
+ *                 and the accumulated disk path; a match excludes the
+ *                 entry entirely.
+ * @param exclude_count Number of entries in excludes; 0 (excludes may then
+ *                       be NULL) excludes nothing.
+ * @param recursive When 0, only root_disk_path's immediate file entries are
+ *                  considered; subdirectories are neither interned nor
+ *                  descended into. When non-zero, the walk descends into
+ *                  every non-excluded subdirectory.
+ * @return ZDOC_OK on success. ZDOC_FS_WALK_FAILED if root_disk_path (or a
+ *         directory beneath it) could not be resolved, opened or read;
+ *         ZDOC_OUT_OF_MEMORY if interning a directory or file failed; or
+ *         ZDOC_PATH_TOO_LONG if a reconstructed disk path overflowed its buffer.
+ */
 enum ZDoc_Error fs_walk(const char* root_disk_path,
             modtree_dir_table_t* dirs,
             modtree_file_table_t* files,

@@ -8,9 +8,20 @@
 #include "doc_comment.h"
 #include "../shared/file_buffer.h"
 
-// Skip any annotations (e.g. @Override, @SuppressWarnings("unchecked"), stacked or with
-// nested-paren arguments) between a doc comment and the declaration it documents.
-// Returns the index of the first non-whitespace, non-annotation character.
+/**
+ * @brief Skip whitespace, comments, and annotations after a doc comment,
+ *        up to the declaration they precede.
+ *
+ * Handles stacked annotations (e.g. @Override followed by
+ * @SuppressWarnings("unchecked")) and annotations with nested-paren
+ * arguments, plus any line or block comments interleaved between them.
+ *
+ * @param src Source buffer.
+ * @param start Offset to start scanning from.
+ * @param len Length of src in bytes.
+ * @return Index of the first non-whitespace, non-comment, non-annotation
+ *         character at or after start.
+ */
 static size_t skip_annotations(const char *src, size_t start, size_t len) {
     size_t i = start;
     for(;;) {
@@ -47,8 +58,18 @@ static size_t skip_annotations(const char *src, size_t start, size_t len) {
     }
 }
 
-// Take the declaration text right after a doc comment, up to (not including) the first '{' or ';',
-// and collapse all whitespace runs to single spaces. Returns NULL if there was nothing there.
+/**
+ * @brief Extract a declaration's signature text following a doc comment.
+ *
+ * Copies src[start..) up to (not including) the first '{' or ';',
+ * collapsing every run of whitespace to a single space.
+ *
+ * @param src Source buffer.
+ * @param start Offset to start extracting from.
+ * @param len Length of src in bytes.
+ * @return Newly heap-allocated, whitespace-collapsed signature string, or
+ *         NULL if there was nothing there.
+ */
 static char *extract_signature(const char *src, size_t start, size_t len) {
     Buffer b = {0};
     int pending_space = 0;
@@ -69,11 +90,23 @@ static char *extract_signature(const char *src, size_t start, size_t len) {
     return b.data;
 }
 
-// Count the 1-based line number of a byte offset into src. *anchor_pos/*anchor_line
-// carry the position/line of the previous call so each call only scans the gap since
-// then, instead of re-scanning from the start of the file every time - callers must
-// only call this with non-decreasing 'pos' values (true for java_parse's single
-// forward pass), otherwise it falls back to a full re-scan from the start.
+/**
+ * @brief Compute the 1-based line number of a byte offset into src.
+ *
+ * *anchor_pos and *anchor_line carry the position/line of the previous
+ * call so each call only scans the gap since then, instead of re-scanning
+ * from the start of the file every time. Callers must only call this with
+ * non-decreasing pos values (true for java_parse's single forward pass);
+ * if pos precedes the anchor, it falls back to a full re-scan from the
+ * start.
+ *
+ * @param src Source buffer.
+ * @param pos Byte offset to find the line number of.
+ * @param anchor_pos Position of the previous call, updated to pos.
+ * @param anchor_line Line number of the previous call, updated to the
+ *                     result.
+ * @return 1-based line number of pos.
+ */
 static uint32_t line_of(const char *src, size_t pos, size_t *anchor_pos, uint32_t *anchor_line) {
     size_t k = pos >= *anchor_pos ? *anchor_pos : 0;
     uint32_t line = pos >= *anchor_pos ? *anchor_line : 1;
@@ -84,8 +117,18 @@ static uint32_t line_of(const char *src, size_t pos, size_t *anchor_pos, uint32_
     return line;
 }
 
-// True if the token src[start..start+len) is a Java method/constructor modifier
-// keyword (the things that can precede a return type - or a constructor name).
+/**
+ * @brief Check whether a token is a Java method/constructor modifier keyword.
+ *
+ * Modifier keywords are the things that can precede a return type (or a
+ * constructor name): public, private, protected, static, final, abstract,
+ * synchronized, native, strictfp, default.
+ *
+ * @param src Start of the token (not necessarily NUL-terminated there).
+ * @param len Length of the token in bytes.
+ * @return 1 if the token exactly matches one of the modifier keywords, 0
+ *         otherwise.
+ */
 static int is_modifier(const char *src, size_t len) {
     static const char *mods[] = {
         "public", "private", "protected", "static", "final", "abstract",
@@ -96,11 +139,19 @@ static int is_modifier(const char *src, size_t len) {
     return 0;
 }
 
-// Classify a symbol as "constructor" or "method" from its signature. A Java
-// constructor has no return type: once modifiers and any generic <...> clause
-// are stripped from the text before the name, a constructor has nothing left
-// while a method still carries its return type. Returns NULL when it cannot be
-// determined (no signature / name).
+/**
+ * @brief Classify a symbol as "constructor" or "method" from its signature.
+ *
+ * A Java constructor has no return type: once modifiers and any generic
+ * <...> clause are stripped from the text before the name, a constructor
+ * has nothing left while a method still carries its return type.
+ *
+ * @param sig Extracted signature text (as produced by extract_signature).
+ * @param name Symbol name, expected to appear as the trailing token of
+ *             sig's prefix before '('.
+ * @return Newly heap-allocated "method" or "constructor" string, or NULL
+ *         when it cannot be determined (no signature / name).
+ */
 static char *classify_type(const char *sig, const char *name) {
     if(!sig || !name) return NULL;
     const char *paren = strchr(sig, '(');
@@ -130,7 +181,15 @@ static char *classify_type(const char *sig, const char *name) {
     return xstrndup(kind, strlen(kind));
 }
 
-// Extract the method or constructor name from the signature. Returns NULL if it can't be found.
+/**
+ * @brief Extract the method or constructor name from a signature.
+ *
+ * The name is the identifier immediately preceding the first '(' in sig.
+ *
+ * @param sig Extracted signature text (as produced by extract_signature).
+ * @return Newly heap-allocated name string, or NULL if sig is NULL or no
+ *         identifier immediately precedes '('.
+ */
 static char *extract_name(const char *sig) {
     if(!sig) return NULL;
     const char *p = strchr(sig, '(');
@@ -142,6 +201,26 @@ static char *extract_name(const char *sig) {
     return xstrndup(p, (size_t)(end - p));
 }
 
+/**
+ * @brief Parse a Java source file into a Module of documented symbols.
+ *
+ * Scans the file for Javadoc-style doc comments (block comments that open
+ * with an extra leading asterisk), skipping over string and character
+ * literals, line comments, and plain block comments so their contents
+ * can't be mistaken for one. Each doc comment is parsed via
+ * parse_doc_comment(); for every one that yields a recognized Symbol, this
+ * also captures the signature of the declaration that follows (skipping
+ * over annotations via skip_annotations()), the method/constructor name,
+ * its 1-based line number, and its classified type ("method" or
+ * "constructor").
+ *
+ * @param path Path to the Java source file to parse.
+ * @return Newly allocated Module with one Symbol per recognized doc
+ *         comment, or NULL if the file could not be read (mirroring
+ *         cp_parser's contract so parser_interface.c's caller sees this as
+ *         a real failure rather than an empty-but-successfully-parsed
+ *         module).
+ */
 Module *java_parse(const char *path) {
     Module *m = init_module(path);
 

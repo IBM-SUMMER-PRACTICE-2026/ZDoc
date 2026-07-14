@@ -3,11 +3,14 @@
 #include <stdatomic.h>
 #include "parser_shared.h"
 
-/* Test for the shared global parser resources.
+/**
+ * @brief Test for the shared global parser resources.
  *
  * Builds a mock module-tree file table containing a single file, publishes
  * it as the global file table, runs init_resources(), then asserts that every
  * shared global ends up in the expected state.
+ *
+ * @return 0 if every assertion passes.
  */
 int main(void) {
     /* --- Arrange: a mock file table holding exactly one file --- */

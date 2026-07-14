@@ -3,6 +3,18 @@
 #include <assert.h>
 #include <string.h>
 
+/**
+ * @brief Self-check that builds a fixed directory/file tree and verifies path reconstruction.
+ *
+ * Interns a known folder1/folder2,folder3 tree with three files by hand
+ * (bypassing fs_walk), prints both tables, then asserts that
+ * modtree_file_path and modtree_dir_path reconstruct the expected relative
+ * paths for each entry.
+ *
+ * @return 0 if every assertion passes.
+ * @note Aborts via assert() on the first mismatch, so a failed check
+ *       terminates the process rather than returning a nonzero status.
+ */
 int main(void) {
     modtree_dir_table_t dirs;
     modtree_file_table_t files;

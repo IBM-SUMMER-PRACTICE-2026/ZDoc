@@ -15,6 +15,15 @@
 #define NUM_THREADS 12
 #endif
 
+/**
+ * @brief Get the current monotonic time in seconds.
+ *
+ * Uses QueryPerformanceCounter on Windows and clock_gettime(CLOCK_MONOTONIC)
+ * elsewhere, so the result is only meaningful as a difference between two
+ * calls, not as a wall-clock timestamp.
+ *
+ * @return Current time in seconds as a floating-point value.
+ */
 static double now_seconds(void) {
 #ifdef _WIN32
     LARGE_INTEGER freq, counter;
@@ -28,11 +37,34 @@ static double now_seconds(void) {
 #endif
 }
 
+/**
+ * @brief Build a placeholder Module recording why a file's parse was skipped.
+ *
+ * filename is left NULL so downstream consumers (build_module_index in the
+ * renderers) can tell this slot apart from a real parsed module, while
+ * status still carries the specific reason for the failure.
+ *
+ * @param error The ZDoc_Error to record as this placeholder's status.
+ * @return A zero-valued Module with status set to error.
+ */
 static Module set_NULL_on_fail(enum ZDoc_Error error) {
     Module m = {.filename=NULL, .pathIndex = -1, .symbolCap=0, .symbolCount=0, .symbols = NULL, .status = error};
     return m;
 }
 
+/**
+ * @brief Worker loop that claims and parses files until none remain.
+ *
+ * Each iteration atomically claims the next unparsed file index from
+ * finished_files, resolves its language and full path, and dispatches to
+ * parse_file(); the result (or a placeholder from set_NULL_on_fail on any
+ * failure) is written into global_parsed_files_arry at that same index. Runs
+ * on every thread in the pool until finished_files reaches files_count.
+ *
+ * @note Not reentrant with respect to a single index - relies on
+ *       atomic_fetch_add to guarantee each file is claimed by exactly one
+ *       thread.
+ */
 void thread_func() {
     for (;;) {
         int curr_possition_in_arry = atomic_fetch_add(&finished_files, 1);
@@ -77,6 +109,20 @@ void thread_func() {
     }
 }
 
+/**
+ * @brief Run one full ZDoc job: walk, parse, and render.
+ *
+ * Walks options->inputs[0] into the global directory/file tables, spins up
+ * a fixed-size thread pool that parses every matched file in parallel via
+ * thread_func(), then renders the results to options->out_dir in the
+ * requested format. Frees the directory/file tables before returning,
+ * whether the job succeeded or failed partway through.
+ *
+ * @param options Parsed CLI options: input path, language/exclude filters,
+ *                recursive flag, output directory, title, and format.
+ * @return ZDOC_OK on success, or the first ZDoc_Error encountered from
+ *         fs_walk, init_resources, the thread pool, or render.
+ */
 enum ZDoc_Error zdoc_daemon_start_job(zd_options* options) {
 
     modtree_dir_table_init(&global_dir_table);

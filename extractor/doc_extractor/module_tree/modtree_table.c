@@ -6,6 +6,12 @@
 
 #define MODTREE_PATH_BUF 4096
 
+/**
+ * @brief Duplicate a NUL-terminated string onto the heap.
+ *
+ * @param src String to copy.
+ * @return Newly allocated copy of src, or NULL if allocation failed.
+ */
 static char *modtree_strdup(const char *src) {
     size_t len = strlen(src) + 1;
     char *copy = malloc(len);
@@ -15,12 +21,25 @@ static char *modtree_strdup(const char *src) {
 }
 
 /* ---------- lifecycle ---------- */
+/**
+ * @brief Initialise an empty directory table.
+ *
+ * @param t Directory table to initialise.
+ */
 void modtree_dir_table_init(modtree_dir_table_t* t) {
     t->dirs = NULL;
     t->capacity = 0;
     t->count = 0;
 }
 
+/**
+ * @brief Release a directory table and every name it owns.
+ *
+ * Frees each interned directory's name string, then the backing array
+ * itself, and resets t to an empty, reusable state.
+ *
+ * @param t Directory table to free.
+ */
 void modtree_dir_table_free(modtree_dir_table_t* t) {
     for (size_t i = 0; i < t->count; i++) {
         free(t->dirs[i].name);
@@ -31,12 +50,25 @@ void modtree_dir_table_free(modtree_dir_table_t* t) {
     t->capacity = 0;
 }
 
+/**
+ * @brief Initialise an empty file table.
+ *
+ * @param t File table to initialise.
+ */
 void modtree_file_table_init(modtree_file_table_t* t) {
     t->files = NULL;
     t->count = 0;
     t->capacity = 0;
 }
- 
+
+/**
+ * @brief Release a file table and every name it owns.
+ *
+ * Frees each interned file's name string, then the backing array itself,
+ * and resets t to an empty, reusable state.
+ *
+ * @param t File table to free.
+ */
 void modtree_file_table_free(modtree_file_table_t* t) {
     for (size_t i = 0; i < t->count; i++) {
         free(t->files[i].name);
@@ -47,6 +79,18 @@ void modtree_file_table_free(modtree_file_table_t* t) {
     t->capacity = 0;
 }
 
+/**
+ * @brief Intern a new directory entry, growing the table if needed.
+ *
+ * No de-duplication is performed - a tree walk never revisits the same
+ * directory, so every call appends a new entry.
+ *
+ * @param t Directory table to insert into.
+ * @param name Directory's own (bare) name; copied into the table.
+ * @param parent_index Index of the parent directory in t, or -1 for a root.
+ * @return Index of the newly inserted entry, or -1 if growing the table or
+ *         copying name failed.
+ */
 int modtree_intern_dir(modtree_dir_table_t* t, const char* name, int parent_index) {
     if (t->count == t->capacity) {
         size_t new_capacity = t->capacity ? t->capacity * 2 : 64;
@@ -64,6 +108,19 @@ int modtree_intern_dir(modtree_dir_table_t* t, const char* name, int parent_inde
     return index;
 }
 
+/**
+ * @brief Intern a new file entry, growing the table if needed.
+ *
+ * No de-duplication is performed - a tree walk never revisits the same
+ * file, so every call appends a new entry.
+ *
+ * @param t File table to insert into.
+ * @param name File's own (bare) name; copied into the table.
+ * @param parent_dir_index Index of the containing directory in the
+ *                          corresponding directory table.
+ * @return Index of the newly inserted entry, or -1 if growing the table or
+ *         copying name failed.
+ */
 int modtree_intern_file(modtree_file_table_t* t, const char* name, int parent_dir_index) {
     if (t->count == t->capacity) {
         size_t new_capacity = t->capacity ? t->capacity * 2 : 64;
@@ -83,8 +140,19 @@ int modtree_intern_file(modtree_file_table_t* t, const char* name, int parent_di
 
 /* ---------- path reconstruction ---------- */
 
-/* Recursive helper: builds the full path for dir_index into buf.
- * Returns ZDOC_OK on success, ZDOC_PATH_TOO_LONG on overflow. */
+/**
+ * @brief Recursively build the full relative path for a directory index.
+ *
+ * Walks parent_index links from dir_index up to a root (index -1), then
+ * joins each directory's name back together with '/' on the way down.
+ *
+ * @param t Directory table dir_index refers into.
+ * @param dir_index Index of the directory to build the path for, or -1 for
+ *                   "no directory" (writes an empty string).
+ * @param buf Buffer that receives the reconstructed path.
+ * @param buf_size Size in bytes of buf.
+ * @return ZDOC_OK on success, ZDOC_PATH_TOO_LONG if buf was too small.
+ */
 static enum ZDoc_Error build_dir_path(const modtree_dir_table_t* t, int dir_index, char* buf, size_t buf_size) {
     if (dir_index == -1) {
         buf[0] = '\0';
@@ -106,10 +174,30 @@ static enum ZDoc_Error build_dir_path(const modtree_dir_table_t* t, int dir_inde
     return ZDOC_OK;
 }
 
+/**
+ * @brief Reconstruct the full relative path for a directory.
+ *
+ * @param t Directory table dir_index refers into.
+ * @param dir_index Index of the directory to build the path for.
+ * @param out Buffer that receives the reconstructed path (e.g. "folder1/folder2").
+ * @param out_size Size in bytes of out.
+ * @return 0 on success, -1 if out was too small.
+ */
 int modtree_dir_path(const modtree_dir_table_t* t, int dir_index, char* out, size_t out_size) {
     return (build_dir_path(t, dir_index, out, out_size) == ZDOC_OK) ? 0 : -1;
 }
 
+/**
+ * @brief Reconstruct the full relative path for a file.
+ *
+ * @param dirs Directory table that the file's parent directory lives in.
+ * @param files File table file_index refers into.
+ * @param file_index Index of the file to build the path for.
+ * @param out Buffer that receives the reconstructed path
+ *            (e.g. "folder1/folder2/file1.plx").
+ * @param out_size Size in bytes of out.
+ * @return ZDOC_OK on success, ZDOC_PATH_TOO_LONG if out was too small.
+ */
 enum ZDoc_Error modtree_file_path(const modtree_dir_table_t* dirs, const modtree_file_table_t* files,
                        int file_index, char* out, size_t out_size) {
     char dir_buf[MODTREE_PATH_BUF];
@@ -129,6 +217,12 @@ enum ZDoc_Error modtree_file_path(const modtree_dir_table_t* dirs, const modtree
     return ZDOC_OK;
 }
 
+/**
+ * @brief Report how many files are currently interned in a file table.
+ *
+ * @param t File table to query.
+ * @return Number of interned files, or -1 if t is NULL.
+ */
 int number_of_files(const modtree_file_table_t* t) {
     if (!t) return -1;
 

@@ -4,6 +4,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/**
+ * @brief Command-line demo that walks a folder and prints the resulting tables.
+ *
+ * Walks argv[1] recursively, filtering by any extensions given in argv[2..]
+ * (matches every file if none are given), then prints the interned directory
+ * table, file table, and each file's reconstructed relative path.
+ *
+ * @param argc Argument count; must be at least 2 (program name plus folder).
+ * @param argv Argument vector: argv[1] is the root folder to walk, argv[2..]
+ *             are an optional list of extension filters (e.g. ".plx" ".pli").
+ * @return 0 on success, 1 if usage is wrong or fs_walk fails.
+ */
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <folder> [ext1 ext2 ...]\n", argv[0]);
