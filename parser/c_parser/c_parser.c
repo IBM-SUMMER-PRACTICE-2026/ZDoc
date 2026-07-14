@@ -2,17 +2,19 @@
  * ZDoc c_parser — implementation.
  *
  * Design for speed:
- *   - one forward pass over a padded copy of the input; no regex, no tokens
- *     stored, no backtracking
+ *   - one forward pass over the input; no regex, no tokens stored, no
+ *     backtracking. All look-ahead is bounds-checked against END(st)/PEEK, so
+ *     the buffer needs no trailing padding.
  *   - function bodies (the bulk of any source file) are skipped by a
  *     brace-matching loop driven by a 256-entry "interesting char" table
  *   - line numbers are computed lazily (memchr over the gap since the last
  *     query) so the hot loops never count newlines
- *   - output strings are individually heap-allocated; cp_result_free walks the
- *     symbols and doc blocks to release them
+ *   - output strings are individually heap-allocated; the shared free_module()
+ *     walks the symbols to release them
  */
 #include "c_parser.h"
 #include "../shared/parser_shared.h"
+#include "../shared/file_buffer.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -22,29 +24,11 @@
 
 /* -------------------------------------------------------------- allocation */
 
-/* Copy s[0..n) into a fresh heap buffer, NUL-terminated. Each output string
- * is individually owned and released in cp_result_free / free_doc. */
-static char *dupn(const char *s, size_t n)
+/* Duplicate a NUL-terminated C string (NULL tolerant). Each output string is
+ * individually owned and released by the shared free_module(). */
+static char *dupcstr(const char *s)
 {
-    char *d = (char *)malloc(n + 1);
-    if (!d)
-        return NULL;
-    memcpy(d, s, n);
-    d[n] = 0;
-    return d;
-}
-
-/* Free every heap string a cp_doc owns (all fields tolerate NULL). */
-static void free_doc(cp_doc *d)
-{
-    free((char *)d->brief);
-    free((char *)d->returns);
-    free((char *)d->notes);
-    for (size_t i = 0; i < d->nparams; i++) {
-        free((char *)d->params[i].name);
-        free((char *)d->params[i].desc);
-    }
-    free(d->params);
+    return s ? xstrdup(s) : NULL;
 }
 
 /* -------------------------------------------------------- growable string */
@@ -103,15 +87,6 @@ static const char *sb_done(sb *s)
 
 /* ----------------------------------------------------------------- result */
 
-struct cp_result {
-    cp_symbol *syms;
-    size_t n, cap;
-    char *buf;      /* padded scan buffer; freed as soon as parsing ends */
-    const char *err;
-    cp_doc filedoc;
-    int has_filedoc;
-};
-
 /* ----------------------------------------------------------- parser state */
 
 typedef struct {
@@ -121,13 +96,24 @@ typedef struct {
 } docref;
 
 typedef struct {
-    const char *begin, *end, *p;
+    const FileBuffer *fb;    /* source: all logic reads bounds from here */
+    const char *cursor;      /* scan cursor into fb->data */
     const char *anchor;      /* lazy line counting */
     uint32_t anchor_line;
     docref doc;              /* pending doc comment awaiting a declaration */
     int depth;               /* decl-scope nesting guard */
-    cp_result *res;
+    Module *res;
 } P;
+
+/* Buffer bounds and cursor offset, always derived from the FileBuffer. */
+#define BEGIN(st) ((st)->fb->data)
+#define END(st)   ((st)->fb->data + (st)->fb->len)
+
+/* Look ahead k bytes from the cursor, yielding 0 at or past the end so no read
+ * ever leaves the buffer. 0 is not a token the scanner acts on, so this ends a
+ * scan exactly as a real terminator would - the parser needs no trailing pad. */
+#define PEEK(st, k) \
+    ((st)->cursor + (k) < END(st) ? (unsigned char)(st)->cursor[(k)] : 0)
 
 typedef struct {
     const char *s, *e;
@@ -212,15 +198,15 @@ static int is_macroish(span nm, const char *stmt_start)
 
 static void skip_block(P *st) /* p is just past the opening slash-star */
 {
-    const char *p = st->p, *end = st->end;
+    const char *p = st->cursor, *end = END(st);
     for (;;) {
         const char *q = (const char *)memchr(p, '*', (size_t)(end - p));
         if (!q) {
-            st->p = end;
+            st->cursor = end;
             return;
         }
-        if (q[1] == '/') { /* padded buffer makes q[1] safe */
-            st->p = q + 2;
+        if (q + 1 < end && q[1] == '/') {
+            st->cursor = q + 2;
             return;
         }
         p = q + 1;
@@ -229,10 +215,10 @@ static void skip_block(P *st) /* p is just past the opening slash-star */
 
 static void skip_line_comment(P *st) /* p at first slash */
 {
-    const char *p = st->p, *end = st->end;
+    const char *p = st->cursor, *end = END(st);
     while (p < end) {
         if (*p == '\n') {
-            if (p[-1] == '\\' || (p[-1] == '\r' && p - 2 >= st->begin && p[-2] == '\\')) {
+            if (p[-1] == '\\' || (p[-1] == '\r' && p - 2 >= BEGIN(st) && p[-2] == '\\')) {
                 p++;
                 continue;
             }
@@ -240,13 +226,13 @@ static void skip_line_comment(P *st) /* p at first slash */
         }
         p++;
     }
-    st->p = p; /* leave the newline for the whitespace skipper */
+    st->cursor = p; /* leave the newline for the whitespace skipper */
 }
 
 static void skip_string(P *st) /* p at opening quote */
 {
-    const char *p = st->p, *end = st->end;
-    if (p > st->begin && p[-1] == 'R') { /* C++ raw string R"delim( ... )delim" */
+    const char *p = st->cursor, *end = END(st);
+    if (p > BEGIN(st) && p[-1] == 'R') { /* C++ raw string R"delim( ... )delim" */
         const char *d = p + 1, *paren = d;
         while (paren < end && *paren != '(' && *paren != '"' &&
                *paren != '\n' && paren - d < 18)
@@ -257,11 +243,11 @@ static void skip_string(P *st) /* p at opening quote */
             for (;;) {
                 q = (const char *)memchr(q, ')', (size_t)(end - q));
                 if (!q) {
-                    st->p = end;
+                    st->cursor = end;
                     return;
                 }
                 if (q + 1 + dn < end && memcmp(q + 1, d, dn) == 0 && q[1 + dn] == '"') {
-                    st->p = q + dn + 2;
+                    st->cursor = q + dn + 2;
                     return;
                 }
                 q++;
@@ -281,12 +267,12 @@ static void skip_string(P *st) /* p at opening quote */
         else
             p++;
     }
-    st->p = p;
+    st->cursor = p;
 }
 
 static void skip_char(P *st) /* p at opening quote */
 {
-    const char *p = st->p + 1, *end = st->end;
+    const char *p = st->cursor + 1, *end = END(st);
     while (p < end) {
         char c = *p;
         if (c == '\\')
@@ -299,35 +285,35 @@ static void skip_char(P *st) /* p at opening quote */
         else
             p++;
     }
-    st->p = p;
+    st->cursor = p;
 }
 
 static void skip_pp_line(P *st) /* p at '#'; stops at the logical EOL */
 {
-    const char *p = st->p, *end = st->end;
+    const char *p = st->cursor, *end = END(st);
     while (p < end) {
         char c = *p;
         if (c == '\n') {
-            if (p[-1] == '\\' || (p[-1] == '\r' && p - 2 >= st->begin && p[-2] == '\\')) {
+            if (p[-1] == '\\' || (p[-1] == '\r' && p - 2 >= BEGIN(st) && p[-2] == '\\')) {
                 p++;
                 continue;
             }
             break;
         }
-        if (c == '/' && p[1] == '*') {
-            st->p = p + 2;
+        if (c == '/' && p + 1 < end && p[1] == '*') {
+            st->cursor = p + 2;
             skip_block(st);
-            p = st->p;
+            p = st->cursor;
             continue;
         }
-        if (c == '/' && p[1] == '/') {
+        if (c == '/' && p + 1 < end && p[1] == '/') {
             const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
             p = nl ? nl : end;
             break;
         }
         p++;
     }
-    st->p = p;
+    st->cursor = p;
 }
 
 /* Fast body skipper: everything between { } that isn't a declaration we
@@ -337,24 +323,24 @@ static void skip_body(P *st) /* p at '{' */
     static const unsigned char interesting[256] = {
         ['{'] = 1, ['}'] = 1, ['"'] = 1, ['\''] = 1, ['/'] = 1, ['#'] = 1,
     };
-    const char *end = st->end;
+    const char *end = END(st);
     int depth = 0;
-    while (st->p < end) {
-        const char *p = st->p;
+    while (st->cursor < end) {
+        const char *p = st->cursor;
         while (p < end && !interesting[(unsigned char)*p])
             p++;
-        st->p = p;
+        st->cursor = p;
         if (p >= end)
             return;
         char c = *p;
         switch (c) {
         case '{':
             depth++;
-            st->p++;
+            st->cursor++;
             break;
         case '}':
             depth--;
-            st->p++;
+            st->cursor++;
             if (depth <= 0)
                 return;
             break;
@@ -363,19 +349,19 @@ static void skip_body(P *st) /* p at '{' */
             break;
         case '\'':
             /* C++14 digit separator (1'000'000) — prev char alnum */
-            if (p > st->begin && isalnum((unsigned char)p[-1]))
-                st->p++;
+            if (p > BEGIN(st) && isalnum((unsigned char)p[-1]))
+                st->cursor++;
             else
                 skip_char(st);
             break;
         case '/':
-            if (p[1] == '*') {
-                st->p = p + 2;
+            if (p + 1 < end && p[1] == '*') {
+                st->cursor = p + 2;
                 skip_block(st);
-            } else if (p[1] == '/') {
+            } else if (p + 1 < end && p[1] == '/') {
                 skip_line_comment(st);
             } else {
-                st->p++;
+                st->cursor++;
             }
             break;
         case '#':
@@ -388,14 +374,14 @@ static void skip_body(P *st) /* p at '{' */
 /* Whitespace + comments inside a statement; leaves pending doc alone. */
 static void ws_quiet(P *st)
 {
-    const char *end = st->end;
+    const char *end = END(st);
     for (;;) {
-        while (st->p < end && isspace((unsigned char)*st->p))
-            st->p++;
-        if (st->p[0] == '/' && st->p[1] == '*') {
-            st->p += 2;
+        while (st->cursor < end && isspace((unsigned char)*st->cursor))
+            st->cursor++;
+        if (PEEK(st, 0) == '/' && PEEK(st, 1) == '*') {
+            st->cursor += 2;
             skip_block(st);
-        } else if (st->p[0] == '/' && st->p[1] == '/') {
+        } else if (PEEK(st, 0) == '/' && PEEK(st, 1) == '/') {
             skip_line_comment(st);
         } else {
             return;
@@ -403,20 +389,17 @@ static void ws_quiet(P *st)
     }
 }
 
-static int parse_doc_text(P *st, docref d, cp_doc *out);
-
 /* A doc block carrying @file/@mainpage documents the module, not the next
- * symbol. Detect it as soon as the block is scanned so it can't mis-attach. */
-static int maybe_filedoc(P *st, docref d)
+ * declaration; ZDoc has no module-level doc concept, so such a block is
+ * simply discarded rather than mis-attached to whatever follows it. */
+static int is_filedoc_block(docref d)
 {
     for (const char *q = d.s; q + 5 <= d.e; q++) {
         if ((*q == '@' || *q == '\\') &&
-            ((memcmp(q + 1, "file", 4) == 0 && !isalpha((unsigned char)q[5])) ||
-             (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0))) {
-            cp_doc scratch;
-            parse_doc_text(st, d, &scratch); /* stores into res->filedoc */
+            ((memcmp(q + 1, "file", 4) == 0 &&
+              (q + 5 == d.e || !isalpha((unsigned char)q[5]))) ||
+             (q + 9 <= d.e && memcmp(q + 1, "mainpage", 8) == 0)))
             return 1;
-        }
     }
     return 0;
 }
@@ -427,35 +410,35 @@ static int maybe_filedoc(P *st, docref d)
  * the association. */
 static void ws_and_docs(P *st)
 {
-    const char *end = st->end;
+    const char *end = END(st);
     for (;;) {
-        while (st->p < end && isspace((unsigned char)*st->p))
-            st->p++;
-        if (st->p[0] == '/' && st->p[1] == '*') {
-            const char *cs = st->p;
-            int isdoc = (st->p[2] == '*' || st->p[2] == '!') &&
-                        !(st->p[2] == '*' && st->p[3] == '/');
-            st->p += 2;
+        while (st->cursor < end && isspace((unsigned char)*st->cursor))
+            st->cursor++;
+        if (PEEK(st, 0) == '/' && PEEK(st, 1) == '*') {
+            const char *cs = st->cursor;
+            int isdoc = (PEEK(st, 2) == '*' || PEEK(st, 2) == '!') &&
+                        !(PEEK(st, 2) == '*' && PEEK(st, 3) == '/');
+            st->cursor += 2;
             skip_block(st);
             if (isdoc) {
-                docref d = {cs, st->p, 0, 1};
-                if (maybe_filedoc(st, d))
+                docref d = {cs, st->cursor, 0, 1};
+                if (is_filedoc_block(d))
                     st->doc.valid = 0;
                 else
                     st->doc = d;
             } else {
                 st->doc.valid = 0;
             }
-        } else if (st->p[0] == '/' && st->p[1] == '/') {
-            const char *cs = st->p;
-            int isdoc = (st->p[2] == '/' || st->p[2] == '!');
+        } else if (PEEK(st, 0) == '/' && PEEK(st, 1) == '/') {
+            const char *cs = st->cursor;
+            int isdoc = (PEEK(st, 2) == '/' || PEEK(st, 2) == '!');
             skip_line_comment(st);
             if (isdoc) {
                 if (st->doc.valid && st->doc.is_line) {
-                    st->doc.e = st->p; /* extend the run */
+                    st->doc.e = st->cursor; /* extend the run */
                 } else {
-                    docref d = {cs, st->p, 1, 1};
-                    if (maybe_filedoc(st, d))
+                    docref d = {cs, st->cursor, 1, 1};
+                    if (is_filedoc_block(d))
                         st->doc.valid = 0;
                     else
                         st->doc = d;
@@ -486,10 +469,10 @@ typedef struct {
     sb name, desc;
 } draft_param;
 
-/* Parse the doc-comment text into `out`. Returns 1 when the doc attaches
- * to the symbol; 0 for file-level docs (@file/@mainpage), which are stored
- * on the result instead. */
-static int parse_doc_text(P *st, docref d, cp_doc *out)
+/* Parse the doc-comment text into `out`. Returns 1 when the doc has any
+ * content worth attaching to the symbol, 0 for an empty doc block. Callers
+ * must have already ruled out @file/@mainpage blocks via is_filedoc_block. */
+static int parse_doc_text(docref d, Symbol *out)
 {
     const char *s = d.s, *e = d.e;
     if (!d.is_line) {
@@ -502,7 +485,6 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
     draft_param *dp = NULL;
     size_t np = 0, cp_ = 0;
     enum { F_BRIEF, F_PARAM, F_RET, F_NOTE } cur = F_BRIEF;
-    int is_filedoc = 0;
 
     const char *ls = s;
     while (ls < e) {
@@ -578,10 +560,6 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
                        tag_is(t, tn, "result") || tag_is(t, tn, "retval")) {
                 cur = F_RET;
                 sb_join(&rets, r, b);
-            } else if (tag_is(t, tn, "file") || tag_is(t, tn, "mainpage") ||
-                       tag_is(t, tn, "page")) {
-                is_filedoc = 1;
-                cur = F_BRIEF; /* the tag argument is just the filename */
             } else if (tag_is(t, tn, "note") || tag_is(t, tn, "details") ||
                        tag_is(t, tn, "remark") || tag_is(t, tn, "remarks")) {
                 cur = F_NOTE;
@@ -608,18 +586,19 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
         }
     }
 
-    cp_doc doc = {0};
-    doc.brief = sb_done(&brief);
-    doc.returns = sb_done(&rets);
-    doc.notes = sb_done(&notes);
+    Symbol doc = {0};
+    doc.description = (char *)sb_done(&brief);
+    doc.output = (char *)sb_done(&rets);
+    doc.notes = (char *)sb_done(&notes);
     if (np) {
-        doc.params = (cp_doc_param *)malloc(np * sizeof *doc.params);
-        if (doc.params) {
+        doc.input = (InputParam *)malloc(np * sizeof *doc.input);
+        if (doc.input) {
             for (size_t i = 0; i < np; i++) {
-                doc.params[i].name = sb_done(&dp[i].name);
-                doc.params[i].desc = sb_done(&dp[i].desc);
+                doc.input[i].name = (char *)sb_done(&dp[i].name);
+                doc.input[i].description = (char *)sb_done(&dp[i].desc);
             }
-            doc.nparams = np;
+            doc.inputCount = (int)np;
+            doc.inputCap = (int)np;
         } else {
             /* OOM: drain the draft buffers so they don't leak */
             for (size_t i = 0; i < np; i++) {
@@ -630,19 +609,8 @@ static int parse_doc_text(P *st, docref d, cp_doc *out)
     }
     free(dp);
 
-    if (is_filedoc) {
-        if (!st->res->has_filedoc) {
-            st->res->filedoc = doc;
-            st->res->has_filedoc = 1;
-        } else {
-            /* only the first @file/@mainpage is kept; free the rest */
-            free_doc(&doc);
-        }
-        memset(out, 0, sizeof *out);
-        return 0;
-    }
     *out = doc;
-    return doc.brief || doc.returns || doc.notes || doc.nparams;
+    return doc.description || doc.output || doc.notes || doc.inputCount;
 }
 
 /* ------------------------------------------------------------- emission */
@@ -696,23 +664,21 @@ static char *make_sig(const char *a, const char *b)
 static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
                  const char *se, uint32_t line, docref *doc)
 {
-    cp_result *r = st->res;
-    if (r->n == r->cap) {
-        size_t c = r->cap ? r->cap * 2 : 64;
-        cp_symbol *ns = (cp_symbol *)realloc(r->syms, c * sizeof *ns);
-        if (!ns)
-            return;
-        r->syms = ns;
-        r->cap = c;
-    }
-    cp_symbol *sym = &r->syms[r->n++];
-    memset(sym, 0, sizeof *sym);
-    sym->kind = k;
+    Symbol *sym = module_add_symbol(st->res);
+    sym->type = dupcstr(cp_symbol_kind_name(k));
     sym->line = line;
-    sym->name = dupn(nm.s, (size_t)(nm.e - nm.s));
+    sym->name = xstrndup(nm.s, (size_t)(nm.e - nm.s));
     sym->signature = make_sig(ss, se);
     if (doc->valid) {
-        sym->has_doc = parse_doc_text(st, *doc, &sym->doc);
+        Symbol d = {0};
+        if (parse_doc_text(*doc, &d)) {
+            sym->description = d.description;
+            sym->output = d.output;
+            sym->notes = d.notes;
+            sym->input = d.input;
+            sym->inputCount = d.inputCount;
+            sym->inputCap = d.inputCap;
+        }
         doc->valid = 0;
     }
 }
@@ -724,31 +690,31 @@ static void parse_decl_scope(P *st, int nested);
 /* #directives at declaration scope. #define becomes a MACRO symbol. */
 static void handle_pp(P *st)
 {
-    const char *hash = st->p;
-    st->p++;
-    while (*st->p == ' ' || *st->p == '\t')
-        st->p++;
-    const char *w = st->p;
-    while (is_id_char((unsigned char)*st->p))
-        st->p++;
-    size_t wn = (size_t)(st->p - w);
+    const char *hash = st->cursor;
+    st->cursor++;
+    while (st->cursor < END(st) && (*st->cursor == ' ' || *st->cursor == '\t'))
+        st->cursor++;
+    const char *w = st->cursor;
+    while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
+        st->cursor++;
+    size_t wn = (size_t)(st->cursor - w);
 
     if (wn == 6 && memcmp(w, "define", 6) == 0) {
         docref doc = st->doc;
         st->doc.valid = 0;
-        while (*st->p == ' ' || *st->p == '\t')
-            st->p++;
-        const char *ns = st->p;
-        while (is_id_char((unsigned char)*st->p))
-            st->p++;
-        span nm = {ns, st->p};
-        int fnlike = (*st->p == '(');
+        while (st->cursor < END(st) && (*st->cursor == ' ' || *st->cursor == '\t'))
+            st->cursor++;
+        const char *ns = st->cursor;
+        while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
+            st->cursor++;
+        span nm = {ns, st->cursor};
+        int fnlike = (PEEK(st, 0) == '(');
         uint32_t line = line_at(st, hash);
         const char *sig_end = NULL;
         if (fnlike) {
             int d = 0;
-            const char *q = st->p;
-            while (q < st->end) {
+            const char *q = st->cursor;
+            while (q < END(st)) {
                 if (*q == '(') {
                     d++;
                 } else if (*q == ')') {
@@ -762,11 +728,11 @@ static void handle_pp(P *st)
                 q++;
             }
             sig_end = q;
-            st->p = q;
+            st->cursor = q;
         }
         skip_pp_line(st);
         if (!fnlike) {
-            sig_end = st->p;
+            sig_end = st->cursor;
             if (sig_end - hash > 160)
                 sig_end = hash + 160; /* long replacement lists add no value */
         }
@@ -789,7 +755,7 @@ static void parse_statement(P *st)
     docref doc = st->doc;
     st->doc.valid = 0;
 
-    const char *stmt_start = st->p;
+    const char *stmt_start = st->cursor;
     uint32_t line = line_at(st, stmt_start);
     span last_ident = {0, 0}, name = {0, 0}, tag_name = {0, 0}, var_ident = {0, 0};
     span td_inner = {0, 0}; /* declarator inside parens: typedef int (*cb)(...) */
@@ -807,16 +773,16 @@ static void parse_statement(P *st)
 
     for (;;) {
         ws_quiet(st);
-        if (st->p >= st->end)
+        if (st->cursor >= END(st))
             return;
-        const char *tp = st->p;
+        const char *tp = st->cursor;
         unsigned char c = (unsigned char)*tp;
 
         if (is_id_start(c)) {
-            st->p++;
-            while (is_id_char((unsigned char)*st->p))
-                st->p++;
-            span id = {tp, st->p};
+            st->cursor++;
+            while (st->cursor < END(st) && is_id_char((unsigned char)*st->cursor))
+                st->cursor++;
+            span id = {tp, st->cursor};
             ntok++;
             if (pd == 0 && !funcish) {
                 if (spis(id, "typedef")) {
@@ -847,21 +813,23 @@ static void parse_statement(P *st)
             else if (prev == TTILDE && tilde_pos)
                 id.s = tilde_pos;
             /* operator overloads: swallow the operator characters */
-            if (spis((span){tp, st->p}, "operator")) {
-                const char *q = st->p;
-                while (*q == ' ' || *q == '\t')
+            if (spis((span){tp, st->cursor}, "operator")) {
+                const char *end = END(st);
+                const char *q = st->cursor;
+                while (q < end && (*q == ' ' || *q == '\t'))
                     q++;
-                if (strchr("+-*/%^&|~!=<>,", *q)) {
+                if (q < end && strchr("+-*/%^&|~!=<>,", *q)) {
                     const char *o = q;
-                    while (strchr("+-*/%^&|~!=<>,", *q))
+                    while (q < end && strchr("+-*/%^&|~!=<>,", *q))
                         q++;
                     (void)o;
                     id.e = q;
-                    st->p = q;
-                } else if ((q[0] == '(' && q[1] == ')') ||
-                           (q[0] == '[' && q[1] == ']')) {
+                    st->cursor = q;
+                } else if (q + 1 < end &&
+                           ((q[0] == '(' && q[1] == ')') ||
+                            (q[0] == '[' && q[1] == ']'))) {
                     id.e = q + 2;
-                    st->p = q + 2;
+                    st->cursor = q + 2;
                 }
             }
             last_ident = id;
@@ -870,11 +838,11 @@ static void parse_statement(P *st)
             continue;
         }
 
-        st->p++;
+        st->cursor++;
         switch (c) {
         case ':':
-            if (*st->p == ':') {
-                st->p++;
+            if (PEEK(st, 0) == ':') {
+                st->cursor++;
                 if (prev == TIDENT) {
                     chain_start = last_ident.s;
                     prev = TSCOPE;
@@ -933,13 +901,13 @@ static void parse_statement(P *st)
             break;
 
         case '=':
-            if (*st->p == '=') { /* comparison, not init */
-                st->p++;
+            if (PEEK(st, 0) == '=') { /* comparison, not init */
+                st->cursor++;
                 prev = TOTHER;
                 break;
             }
             {
-                char pc = tp > st->begin ? tp[-1] : 0;
+                char pc = tp > BEGIN(st) ? tp[-1] : 0;
                 /* skip compound assigns / comparisons (+=, <=, !=, ...) */
                 if (!pc || !strchr("+-*/%&|^!<>", pc)) {
                     if (pd == 0 && !funcish && !has_init) {
@@ -984,20 +952,20 @@ static void parse_statement(P *st)
 
         case '{':
             if (pd > 0) { /* lambda in a default argument, etc. */
-                st->p = tp;
+                st->cursor = tp;
                 skip_body(st);
                 prev = TOTHER;
                 break;
             }
             if (kw_typedef || (has_init && !funcish)) {
                 /* typedef struct {...} X;  or  = { initializer } */
-                st->p = tp;
+                st->cursor = tp;
                 skip_body(st);
                 prev = TOTHER;
                 break;
             }
             if (in_ctor && prev == TIDENT) { /* member brace-init: a{1} */
-                st->p = tp;
+                st->cursor = tp;
                 skip_body(st);
                 prev = TOTHER;
                 break;
@@ -1006,7 +974,7 @@ static void parse_statement(P *st)
                 if (SPAN_OK(tag_name))
                     emit(st, CP_SYM_TYPE, tag_name, stmt_start, tp, line, &doc);
                 emitted = 1;
-                st->p = tp;
+                st->cursor = tp;
                 skip_body(st);
                 prev = TOTHER;
                 break;
@@ -1014,7 +982,7 @@ static void parse_statement(P *st)
             if (funcish) {
                 const char *se = sig_end_override ? sig_end_override : tp;
                 emit(st, CP_SYM_FUNCTION, name, stmt_start, se, line, &doc);
-                st->p = tp;
+                st->cursor = tp;
                 skip_body(st);
                 return;
             }
@@ -1025,7 +993,7 @@ static void parse_statement(P *st)
                 if (st->depth < 128)
                     parse_decl_scope(st, 1); /* members / methods */
                 else {
-                    st->p = tp;
+                    st->cursor = tp;
                     skip_body(st);
                 }
                 prev = TOTHER;
@@ -1035,26 +1003,26 @@ static void parse_statement(P *st)
                 parse_decl_scope(st, 1);
                 return;
             }
-            st->p = tp;
+            st->cursor = tp;
             skip_body(st);
             prev = TOTHER;
             break;
 
         case '}':
             if (pd == 0) {
-                st->p = tp; /* let the enclosing scope consume it */
+                st->cursor = tp; /* let the enclosing scope consume it */
                 return;
             }
             prev = TOTHER;
             break;
 
         case '#':
-            st->p = tp;
+            st->cursor = tp;
             skip_pp_line(st);
             break;
 
         case '"':
-            st->p = tp;
+            st->cursor = tp;
             skip_string(st);
             if (kw_ext)
                 ext_lang = 1; /* extern "C" */
@@ -1063,10 +1031,10 @@ static void parse_statement(P *st)
             break;
 
         case '\'':
-            if (tp > st->begin && isalnum((unsigned char)tp[-1])) {
+            if (tp > BEGIN(st) && isalnum((unsigned char)tp[-1])) {
                 /* digit separator: quote already consumed */
             } else {
-                st->p = tp;
+                st->cursor = tp;
                 skip_char(st);
             }
             prev = TOTHER;
@@ -1084,11 +1052,11 @@ static void parse_decl_scope(P *st, int nested)
     st->depth++;
     for (;;) {
         ws_and_docs(st);
-        if (st->p >= st->end)
+        if (st->cursor >= END(st))
             break;
-        char c = *st->p;
+        char c = *st->cursor;
         if (c == '}') {
-            st->p++;
+            st->cursor++;
             if (nested)
                 break;
             st->doc.valid = 0; /* stray brace at top level */
@@ -1099,7 +1067,7 @@ static void parse_decl_scope(P *st, int nested)
             continue;
         }
         if (c == ';') {
-            st->p++;
+            st->cursor++;
             st->doc.valid = 0;
             continue;
         }
@@ -1110,102 +1078,36 @@ static void parse_decl_scope(P *st, int nested)
 
 /* -------------------------------------------------------------- public API */
 
-/* Scan r->buf[0..len) (which must already carry the 16-byte NUL padding) and
- * release the buffer as soon as the pass finishes: every output string is an
- * owned heap copy, so nothing references r->buf once parsing returns. This is
- * what keeps a parsed result from pinning a whole file-sized allocation. */
-static void run_scan(cp_result *r, size_t len)
+/* Scan fb->data[0..fb->len) into m. Every output string is an owned heap copy,
+ * so nothing references the buffer once the pass returns and the caller can
+ * release it immediately. This is what keeps a parsed module from pinning a
+ * whole file-sized allocation. */
+static void run_scan(Module *m, const FileBuffer *fb)
 {
     P st = {0};
-    st.begin = r->buf;
-    st.end = r->buf + len;
-    st.p = r->buf;
-    if (len >= 3 && (unsigned char)r->buf[0] == 0xEF &&
-        (unsigned char)r->buf[1] == 0xBB && (unsigned char)r->buf[2] == 0xBF)
-        st.p += 3; /* UTF-8 BOM */
-    st.anchor = st.p;
+    st.fb = fb;
+    st.cursor = fb->data;
+    if (fb->len >= 3 && (unsigned char)fb->data[0] == 0xEF &&
+        (unsigned char)fb->data[1] == 0xBB && (unsigned char)fb->data[2] == 0xBF)
+        st.cursor += 3; /* UTF-8 BOM */
+    st.anchor = st.cursor;
     st.anchor_line = 1;
-    st.res = r;
+    st.res = m;
     parse_decl_scope(&st, 0);
 
-    free(r->buf);
-    r->buf = NULL;
+    module_shrink_to_fit(m);
 }
 
-cp_result *cp_parse_buffer(const char *src, size_t len)
+Module *cp_parser(const char *path)
 {
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r)
+    FileBuffer fb = read_file_buffer(path);
+    if (!fb.data)
         return NULL;
-    r->buf = (char *)malloc(len + 16);
-    if (!r->buf) {
-        r->err = "out of memory";
-        return r;
-    }
-    memcpy(r->buf, src, len);
-    memset(r->buf + len, 0, 16); /* NUL padding: lookahead never overruns */
-    run_scan(r, len);
-    return r;
-}
 
-cp_result *cp_parser(const char *path)
-{
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        cp_result *r = (cp_result *)calloc(1, sizeof *r);
-        if (r)
-            r->err = strerror(errno);
-        return r;
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    if (sz < 0) {
-        fclose(f);
-        cp_result *r = (cp_result *)calloc(1, sizeof *r);
-        if (r)
-            r->err = "unseekable file";
-        return r;
-    }
-    fseek(f, 0, SEEK_SET);
-
-    cp_result *r = (cp_result *)calloc(1, sizeof *r);
-    if (!r) {
-        fclose(f);
-        return NULL;
-    }
-    /* Read straight into the padded scan buffer - no intermediate copy. */
-    r->buf = (char *)malloc((size_t)sz + 16);
-    if (!r->buf) {
-        fclose(f);
-        r->err = "out of memory";
-        return r;
-    }
-    size_t rd = fread(r->buf, 1, (size_t)sz, f);
-    fclose(f);
-    memset(r->buf + rd, 0, 16); /* NUL padding from the actual bytes read */
-    run_scan(r, rd);
-    return r;
-}
-
-const cp_symbol *cp_symbols(const cp_result *r, size_t *count)
-{
-    if (count)
-        *count = r ? r->n : 0;
-    return r ? r->syms : NULL;
-}
-
-int cp_module_doc(const cp_result *r, cp_doc *out)
-{
-    if (!r || !r->has_filedoc)
-        return 0;
-    if (out)
-        *out = r->filedoc;
-    return 1;
-}
-
-const char *cp_error(const cp_result *r)
-{
-    return r ? r->err : "out of memory";
+    Module *m = init_module(path);
+    run_scan(m, &fb);
+    free_file_buffer(&fb);
+    return m;
 }
 
 const char *cp_symbol_kind_name(cp_symbol_kind k)
@@ -1220,140 +1122,10 @@ const char *cp_symbol_kind_name(cp_symbol_kind k)
     return "unknown";
 }
 
-void cp_result_free(cp_result *r)
-{
-    if (!r)
-        return;
-    for (size_t i = 0; i < r->n; i++) {
-        cp_symbol *s = &r->syms[i];
-        free((char *)s->name);
-        free((char *)s->signature);
-        free_doc(&s->doc);
-    }
-    if (r->has_filedoc)
-        free_doc(&r->filedoc);
-    free(r->syms);
-    free(r->buf);
-    free(r);
-}
-
-/* ------------------------------------------------ shared Module adapter */
-
-/* Duplicate a C string with dupn (reuses the module's owned-string helper). */
-static char *dupcstr(const char *s)
-{
-    return s ? dupn(s, strlen(s)) : NULL;
-}
-
-/* Move every owned string out of a parsed cp_result into a shared Module.
- * Strings are transferred (not copied); the cp_symbol fields are cleared so
- * cp_result_free then tears down only the leftovers (the emptied doc blocks,
- * the file-level doc we drop, the symbol array and the result itself).
- *
- * Field mapping: kind -> type (as a string), doc.brief -> description,
- * doc.returns -> output, doc.notes -> notes, doc.params -> input. The
- * C-only module doc and has_doc flag have no shared home and are dropped. */
-static Module *result_to_module(cp_result *r, const char *path)
-{
-    Module *m = (Module *)calloc(1, sizeof *m);
-    if (!m) {
-        cp_result_free(r);
-        return NULL;
-    }
-    m->filename = dupcstr(path);
-
-    if (r->n) {
-        m->symbols = (Symbol *)malloc(r->n * sizeof *m->symbols);
-        if (!m->symbols) {
-            /* OOM: hand back an empty module, let cp_result_free reclaim all */
-            cp_result_free(r);
-            return m;
-        }
-        m->symbolCount = (int)r->n;
-        m->symbolCap = (int)r->n;
-
-        for (size_t i = 0; i < r->n; i++) {
-            cp_symbol *cs = &r->syms[i];
-            Symbol *sy = &m->symbols[i];
-            memset(sy, 0, sizeof *sy);
-
-            sy->name = (char *)cs->name;
-            cs->name = NULL;
-            sy->signature = (char *)cs->signature;
-            cs->signature = NULL;
-            sy->line = cs->line;
-            sy->type = dupcstr(cp_symbol_kind_name(cs->kind));
-            sy->diagram = NULL;
-
-            sy->description = (char *)cs->doc.brief;
-            cs->doc.brief = NULL;
-            sy->output = (char *)cs->doc.returns;
-            cs->doc.returns = NULL;
-            sy->notes = (char *)cs->doc.notes;
-            cs->doc.notes = NULL;
-
-            if (cs->doc.nparams) {
-                sy->input =
-                    (InputParam *)malloc(cs->doc.nparams * sizeof *sy->input);
-                if (sy->input) {
-                    sy->inputCount = (int)cs->doc.nparams;
-                    for (size_t j = 0; j < cs->doc.nparams; j++) {
-                        sy->input[j].name = (char *)cs->doc.params[j].name;
-                        sy->input[j].description =
-                            (char *)cs->doc.params[j].desc;
-                    }
-                    /* strings moved; drop the shell so cp_result_free skips */
-                    free(cs->doc.params);
-                    cs->doc.params = NULL;
-                    cs->doc.nparams = 0;
-                }
-                /* on OOM leave doc.params intact for cp_result_free to reclaim */
-            }
-        }
-    }
-
-    cp_result_free(r);
-    return m;
-}
-
 Module *cp_parse_file(const char *path)
 {
-    cp_result *r = cp_parser(path);
-    if (!r)
-        return NULL; /* allocation failure */
-
-    if (cp_error(r)) {
-        fprintf(stderr, "zdoc-c-parser: %s: %s\n", path, cp_error(r));
-        cp_result_free(r);
-        Module *m = (Module *)calloc(1, sizeof *m);
-        if (m)
-            m->filename = dupcstr(path);
-        return m; /* empty module */
-    }
-
-    return result_to_module(r, path);
-}
-
-void cp_free_module(Module *m)
-{
+    Module *m = cp_parser(path);
     if (!m)
-        return;
-    for (int i = 0; i < m->symbolCount; i++) {
-        Symbol *s = &m->symbols[i];
-        free(s->name);
-        free(s->signature);
-        free(s->description);
-        free(s->output);
-        free(s->notes);
-        free(s->type);
-        free(s->diagram);
-        for (int j = 0; j < s->inputCount; j++) {
-            free(s->input[j].name);
-            free(s->input[j].description);
-        }
-        free(s->input);
-    }
-    free(m->symbols);
-    free(m->filename);
-    free(m);
+        return init_module(path); /* cp_parser() already reported the failure */
+    return m;
 }
