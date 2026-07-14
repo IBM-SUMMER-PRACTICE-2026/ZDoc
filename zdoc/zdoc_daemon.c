@@ -4,6 +4,7 @@
 #include "../parser/plx_parser/plx_parser.h"
 #include "../parser/parser_interface.h"
 #include "./threading_interface/threading_interface.h"
+#include "./renderer_interface/renderer_interface.h"
 #include "zdoc_daemon.h"
 #include <stdio.h>
 #include <string.h>
@@ -27,7 +28,7 @@ static double now_seconds(void) {
 #endif
 }
 
-static Module set_NULL_on_fail(int curr_possition) {
+static Module set_NULL_on_fail() {
     Module m = {.filename=NULL, .pathIndex = -1, .symbolCap=0, .symbolCount=0, .symbols = NULL};
     return m;
 }
@@ -40,14 +41,14 @@ void thread_func() {
         }
         enum Language lang = language_from_name(global_file_table.files[curr_possition_in_arry].name);
         if ((int)lang < 0) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(curr_possition_in_arry);
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
             continue;
         }
 
         char* path = paths_look_up[curr_possition_in_arry];
         int prefix_len = snprintf(path, 4096, "%s/", fs_walk_root_prefix);
         if (prefix_len < 0 || prefix_len >= 4096) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(curr_possition_in_arry);
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
             continue;
         }
         modtree_file_path(&global_dir_table, &global_file_table,
@@ -61,7 +62,7 @@ void thread_func() {
 
         Module* finished = parse_file(lang, path);
         if (finished == NULL) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(curr_possition_in_arry);
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
             continue;
         }
 
@@ -100,11 +101,16 @@ void zdoc_daemon_start_job(zd_options* options) {
         wait_for_thread(&threads[i]);
     }
 
+    // double elapsed = now_seconds() - start;
+    // printf("%d threads parsed %d files in %.3f s\n",
+    //        NUM_THREADS, files_count, elapsed);
+
+    render(options->out_dir, options->title, options->format);
+    
     double elapsed = now_seconds() - start;
-    printf("%d threads parsed %d files in %.3f s\n",
+    printf("%d threads parsed %d files and rendered them in %.10f s\n",
            NUM_THREADS, files_count, elapsed);
 
-        
     modtree_dir_table_free(&global_dir_table);
     modtree_file_table_free(&global_file_table);
 

@@ -26,40 +26,54 @@ OBJS = main.o options.o cli.o config.o request.o
 # ../threading_interface). Compiled straight from source into the final
 # link, like ../Makefile does, rather than emitting .o files into those
 # other directories.
-SHARED  = ../../parser/shared
-MODTREE = ../../extractor/doc_extractor/module_tree
-PLX     = ../../parser/plx_parser
-CPARSER = ../../parser/c_parser
-JPARSER = ../../parser/java_parser
-PARSER  = ../../parser
-THREAD  = ../threading_interface
+SHARED   = ../../parser/shared
+MODTREE  = ../../extractor/doc_extractor/module_tree
+PLX      = ../../parser/plx_parser
+CPARSER  = ../../parser/c_parser
+JPARSER  = ../../parser/java_parser
+PARSER   = ../../parser
+THREAD   = ../threading_interface
+RENDERIF = ../renderer_interface
+MDREND   = ../../renderer/md_renderer/src
+HTMLREND = ../../renderer/html_renderer
 
 DAEMON_SRCS = ../zdoc_daemon.c \
               $(PARSER)/parser_interface.c \
               $(SHARED)/parser_shared.c \
+              $(SHARED)/parser_shared_interface.c \
+              $(SHARED)/file_buffer.c \
               $(MODTREE)/fs_walk.c \
               $(MODTREE)/path_interface.c \
               $(MODTREE)/modtree_table.c \
               $(PLX)/plx_parser.c \
-              $(PLX)/helpers.c \
+              $(PLX)/parser_helpers.c \
+              $(PLX)/str_helpers.c \
               $(CPARSER)/c_parser.c \
               $(JPARSER)/java_parser.c \
               $(JPARSER)/doc_comment.c \
-              $(THREAD)/threading_interface.c
+              $(THREAD)/threading_interface.c \
+              $(RENDERIF)/renderer_interface.c \
+              $(MDREND)/md_render.c \
+              $(HTMLREND)/html_render.c
 
 DAEMON_HDRS = ../zdoc_daemon.h \
               $(PARSER)/parser_interface.h \
               $(SHARED)/parser_shared.h \
+              $(SHARED)/file_buffer.h \
               $(MODTREE)/fs_walk.h \
               $(MODTREE)/path_interface.h \
               $(MODTREE)/modtree_tables.h \
               $(PLX)/plx_parser.h \
-              $(PLX)/helpers.h \
+              $(PLX)/parser_helpers.h \
+              $(PLX)/str_helpers.h \
               $(CPARSER)/c_parser.h \
               $(JPARSER)/java_parser.h \
               $(JPARSER)/doc_comment.h \
               $(JPARSER)/util.h \
-              $(THREAD)/threading_interface.h
+              $(THREAD)/threading_interface.h \
+              $(RENDERIF)/renderer_interface.h \
+              $(MDREND)/md_renderer.h \
+              $(HTMLREND)/html_renderer.h
 
 # Where `make install` drops the binary. Must be a directory already on PATH.
 # Override on the command line, e.g. `make install PREFIX=/usr/local/bin`.
