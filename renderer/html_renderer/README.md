@@ -9,8 +9,12 @@ CSS and JavaScript — no external dependencies required for offline output.
 
 ## Input / output
 
-- **Input:** the normalised documentation-model JSON from
-  [`doc_extractor`](../../extractor/doc_extractor/), read from stdin or a file.
+- **Input:** the daemon's already-walked module_tree tables (`modtree_dir_table_t`/
+  `modtree_file_table_t`) plus its parsed `Module` array, passed directly in memory -
+  no JSON, no doc_extractor stage in between. See `html_renderer.h`. Cross-reference
+  links (previously carried by doc_extractor's `refs` field) were dropped along with
+  it - nothing upstream ever actually populated that field, so nothing that worked
+  was lost.
 - **Output:** `index.html` (and any assets) written under the output directory
   (default `./zdoc-out`).
 
