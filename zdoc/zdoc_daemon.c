@@ -28,8 +28,8 @@ static double now_seconds(void) {
 #endif
 }
 
-static Module set_NULL_on_fail() {
-    Module m = {.filename=NULL, .pathIndex = -1, .symbolCap=0, .symbolCount=0, .symbols = NULL};
+static Module set_NULL_on_fail(enum ZDoc_Error error) {
+    Module m = {.filename=NULL, .pathIndex = -1, .symbolCap=0, .symbolCount=0, .symbols = NULL, .status = error};
     return m;
 }
 
@@ -39,16 +39,16 @@ void thread_func() {
         if (curr_possition_in_arry >= files_count) {
             break;
         }
-        enum Language lang = language_from_name(global_file_table.files[curr_possition_in_arry].name);
-        if ((int)lang < 0) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
+        enum Language lang;
+        if (language_from_name(global_file_table.files[curr_possition_in_arry].name, &lang) == ZDOC_UNSUPPORTED_LANGUAGE) {
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(ZDOC_UNSUPPORTED_LANGUAGE);
             continue;
         }
 
         char* path = paths_look_up[curr_possition_in_arry];
         int prefix_len = snprintf(path, 4096, "%s/", fs_walk_root_prefix);
         if (prefix_len < 0 || prefix_len >= 4096) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(ZDOC_PATH_TOO_LONG);
             continue;
         }
         modtree_file_path(&global_dir_table, &global_file_table,
@@ -62,7 +62,7 @@ void thread_func() {
 
         Module* finished = parse_file(lang, path);
         if (finished == NULL) {
-            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail();
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(ZDOC_PARSER_FAILED);
             continue;
         }
 

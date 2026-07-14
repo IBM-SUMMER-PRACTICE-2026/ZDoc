@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include "../../extractor/doc_extractor/module_tree/modtree_tables.h"
+#include "../../zdoc/error_interface.h"
 
 
 extern _Atomic int finished_files;
@@ -45,6 +46,7 @@ typedef struct Module {
     int symbolCount;
     int symbolCap;
     int pathIndex;
+    enum ZDoc_Error status;
 } Module;
 
 /* Function that initializes the files count,

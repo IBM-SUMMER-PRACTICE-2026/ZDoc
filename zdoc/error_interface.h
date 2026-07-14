@@ -1,0 +1,12 @@
+#ifndef ZDOC_ERROR_INTERFACE_H
+#define ZDOC_ERROR_INTERFACE_H
+
+enum ZDoc_Error {
+    ZDOC_UNSUPPORTED_LANGUAGE = 0x00,
+    ZDOC_OK = 0x01,
+    ZDOC_DEFAULT = 0x02,
+    ZDOC_PATH_TOO_LONG = 0x03,
+    ZDOC_PARSER_FAILED = 0x04
+};
+
+#endif
