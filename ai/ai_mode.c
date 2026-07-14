@@ -127,20 +127,16 @@ static int resolve_source_path(const modtree_dir_table_t *dirs,
     return (need > 0 && (size_t)need < out_size) ? 0 : -1;
 }
 
-/* Annotate one module. Returns the number of symbols annotated (>= 0). */
-static int annotate_module(const modtree_dir_table_t *dirs,
-                           const modtree_file_table_t *files, Module *mod,
-                           const AiOptions *opt)
+/* Core per-symbol pass, shared by both entry points: read `path` once, then for
+ * each symbol slice its body by starting line, build the snippet, and call Bob.
+ * The sliced diagram lands in each symbol's `diagram`, so a diagram is tied to
+ * its symbol by that symbol's starting line. Returns the count annotated. */
+static int annotate_from_source(const char *path, bc_lang lang, Module *mod,
+                                const AiOptions *opt)
 {
-    int pi = mod->pathIndex;
-    if (pi < 0 || (size_t)pi >= files->count || mod->symbolCount <= 0)
+    if (!path || !mod || mod->symbolCount <= 0)
         return 0;
 
-    char path[FS_WALK_PATH_MAX + 512];
-    if (resolve_source_path(dirs, files, pi, path, sizeof path) != 0)
-        return 0;
-
-    bc_lang lang = lang_from_name(files->files[pi].name);
     const char *display = bc_lang_display(lang);
 
     size_t flen = 0;
@@ -168,6 +164,30 @@ static int annotate_module(const modtree_dir_table_t *dirs,
 
     free(buf);
     return done;
+}
+
+/* Annotate one module resolved through the module_tree tables (batch path). */
+static int annotate_module(const modtree_dir_table_t *dirs,
+                           const modtree_file_table_t *files, Module *mod,
+                           const AiOptions *opt)
+{
+    int pi = mod->pathIndex;
+    if (pi < 0 || (size_t)pi >= files->count || mod->symbolCount <= 0)
+        return 0;
+
+    char path[FS_WALK_PATH_MAX + 512];
+    if (resolve_source_path(dirs, files, pi, path, sizeof path) != 0)
+        return 0;
+
+    return annotate_from_source(path, lang_from_name(files->files[pi].name),
+                                mod, opt);
+}
+
+int zdoc_ai_annotate_file(const char *path, Module *mod, const AiOptions *opt)
+{
+    if (!path || !mod || !opt)
+        return -1;
+    return annotate_from_source(path, lang_from_name(path), mod, opt);
 }
 
 int zdoc_ai_annotate(const modtree_dir_table_t *dirs,
