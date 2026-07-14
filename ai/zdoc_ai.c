@@ -8,19 +8,23 @@
  *     make -C ai zdoc_ai
  *     ./ai/zdoc_ai path/to/File.(c|java|plx) [--bob <bob-binary>]
  *
- * Bob is invoked with fork+exec (the prompt is a single argv element, so its
- * backticks/quotes never touch a shell). Needs bob on PATH (or --bob) with a
- * valid session/API key. POSIX (local dev tool).
+ * The prompt is passed to Bob as a single argument (never through a shell), so
+ * its backticks/quotes/newlines cannot break the command or inject anything.
+ * Cross-platform: fork+exec on POSIX, CreateProcess on Windows.
  */
-#define _POSIX_C_SOURCE 200809L
+#if defined(_WIN32)
+#  include <windows.h>
+#else
+#  define _POSIX_C_SOURCE 200809L
+#  include <unistd.h>
+#  include <sys/wait.h>
+#endif
 
 #include "../parser/parser_interface.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
 
 static const char *PROMPT =
     "Read the source file named below and produce a ZDoc block diagram for EACH\n"
@@ -66,29 +70,172 @@ static const char *PROMPT =
     "  ;, / or backticks inside label text; reword instead.\n";
 
 /* Assemble the full prompt: contract + the file to read + the function list
- * (each with its start line). malloc'd; caller frees. */
+ * (each with its start line). malloc'd; caller frees. Portable (no POSIX
+ * open_memstream). */
 static char *build_prompt(const char *path, const Module *mod)
 {
-    char *buf = NULL;
-    size_t len = 0;
-    FILE *f = open_memstream(&buf, &len);
-    if (!f)
+    size_t cap = strlen(PROMPT) + strlen(path) + 256;
+    for (int i = 0; i < mod->symbolCount; i++)
+        cap += (mod->symbols[i].name ? strlen(mod->symbols[i].name) : 8) + 40;
+
+    char *buf = malloc(cap);
+    if (!buf)
         return NULL;
-    fputs(PROMPT, f);
-    fprintf(f, "\nFile to read: %s\n", path);
-    fprintf(f, "\nFunctions to diagram (%d), each tagged by its start line:\n",
-            mod->symbolCount);
-    for (int i = 0; i < mod->symbolCount; i++) {
+
+    int off = snprintf(buf, cap,
+                       "%s\nFile to read: %s\n\nFunctions to diagram (%d), each"
+                       " tagged by its start line:\n",
+                       PROMPT, path, mod->symbolCount);
+    for (int i = 0; i < mod->symbolCount && off > 0 && (size_t)off < cap; i++) {
         const Symbol *s = &mod->symbols[i];
-        fprintf(f, "  line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
+        off += snprintf(buf + off, cap - (size_t)off, "  line %u: %s\n",
+                        s->line, s->name ? s->name : "(unnamed)");
     }
-    fclose(f);
     return buf;
 }
 
-/* Run `cli` with the prompt as a single argv element, capturing its stdout.
- * Returns a malloc'd NUL-terminated buffer (caller frees), or NULL if the
- * process could not run or exited non-zero. */
+/* -------------------------------------------------- run bob (per platform) */
+
+#if defined(_WIN32)
+
+/* Grow-append helpers for building the Windows command line. */
+static int cl_add(char **b, size_t *n, size_t *cap, const char *s, size_t len)
+{
+    if (*n + len + 1 > *cap) {
+        size_t c = *cap ? *cap * 2 : 256;
+        while (c < *n + len + 1)
+            c *= 2;
+        char *g = realloc(*b, c);
+        if (!g)
+            return -1;
+        *b = g;
+        *cap = c;
+    }
+    memcpy(*b + *n, s, len);
+    *n += len;
+    (*b)[*n] = '\0';
+    return 0;
+}
+
+/* Append `arg` quoted per the CommandLineToArgvW rules. */
+static int cl_quote(char **b, size_t *n, size_t *cap, const char *arg)
+{
+    int needs = (arg[0] == '\0');
+    for (const char *p = arg; *p && !needs; p++)
+        if (*p == ' ' || *p == '\t' || *p == '"')
+            needs = 1;
+    if (!needs)
+        return cl_add(b, n, cap, arg, strlen(arg));
+    if (cl_add(b, n, cap, "\"", 1))
+        return -1;
+    for (const char *p = arg;; p++) {
+        size_t bs = 0;
+        while (*p == '\\') {
+            p++;
+            bs++;
+        }
+        if (*p == '\0') {
+            for (size_t i = 0; i < bs * 2; i++)
+                if (cl_add(b, n, cap, "\\", 1))
+                    return -1;
+            break;
+        } else if (*p == '"') {
+            for (size_t i = 0; i < bs * 2 + 1; i++)
+                if (cl_add(b, n, cap, "\\", 1))
+                    return -1;
+            if (cl_add(b, n, cap, "\"", 1))
+                return -1;
+        } else {
+            for (size_t i = 0; i < bs; i++)
+                if (cl_add(b, n, cap, "\\", 1))
+                    return -1;
+            if (cl_add(b, n, cap, p, 1))
+                return -1;
+        }
+    }
+    return cl_add(b, n, cap, "\"", 1);
+}
+
+static char *run_bob(const char *cli, const char *prompt)
+{
+    char *cmd = NULL;
+    size_t n = 0, cap = 0;
+    if (cl_quote(&cmd, &n, &cap, cli) ||
+        cl_add(&cmd, &n, &cap, " -o text -y ", 11) ||
+        cl_quote(&cmd, &n, &cap, prompt)) {
+        free(cmd);
+        return NULL;
+    }
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof sa;
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;
+
+    HANDLE rd = NULL, wr = NULL;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) {
+        free(cmd);
+        return NULL;
+    }
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    ZeroMemory(&si, sizeof si);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = wr;
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof pi);
+    BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si,
+                             &pi);
+    free(cmd);
+    CloseHandle(wr);
+    if (!ok) {
+        CloseHandle(rd);
+        return NULL;
+    }
+
+    char *out = NULL;
+    size_t len = 0, ocap = 0;
+    char b[4096];
+    DWORD got = 0;
+    while (ReadFile(rd, b, sizeof b, &got, NULL) && got > 0) {
+        if (len + got + 1 > ocap) {
+            ocap = ocap ? ocap * 2 : 8192;
+            while (ocap < len + got + 1)
+                ocap *= 2;
+            char *g = realloc(out, ocap);
+            if (!g) {
+                free(out);
+                out = NULL;
+                break;
+            }
+            out = g;
+        }
+        memcpy(out + len, b, got);
+        len += got;
+    }
+    CloseHandle(rd);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    if (!out || code != 0) {
+        free(out);
+        return NULL;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+#else /* POSIX */
+
 static char *run_bob(const char *cli, const char *prompt)
 {
     int fds[2];
@@ -141,6 +288,10 @@ static char *run_bob(const char *cli, const char *prompt)
     out[len] = '\0';
     return out;
 }
+
+#endif /* platform */
+
+/* ---------------------------------------------------- match + store output */
 
 /* Copy [start,end) into a fresh string with backticks and trailing whitespace
  * stripped, so it is safe to embed. malloc'd. */
