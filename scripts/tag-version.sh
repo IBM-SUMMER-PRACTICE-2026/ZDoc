@@ -24,8 +24,13 @@ fi
 tag="v$version"
 created=false
 
+# CHECK_ONLY=1 reports whether a release is due without writing the tag — used
+# by the CI job to decide if the expensive multi-platform build should run.
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
     echo "tag-version: $tag already exists — nothing to release." >&2
+elif [ "${CHECK_ONLY:-0}" = "1" ]; then
+    created=true
+    echo "tag-version: $tag not present — release needed (check-only, no tag written)." >&2
 else
     git tag -a "$tag" -m "Release $tag"
     created=true
