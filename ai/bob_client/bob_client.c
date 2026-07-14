@@ -143,11 +143,10 @@ static char *run_bob(const BobConfig *cfg, const char *language,
         return NULL;
     }
 
-    /* Real Bob is a one-shot prompt agent (Bob Shell). The zdoc-diagram
-     * extension carries the output contract; we pass the snippet as the
-     * prompt. `-o text` prints the final answer; `--chat-mode ask -y` keeps
-     * it read-only and non-interactive.
-     * cli -o text --chat-mode ask -y PROMPT = 7 slots. */
+    /* Real Bob is a one-shot prompt agent (Bob Shell). build_prompt carries
+     * the full output contract, so we just pass the prompt. `-o text` prints
+     * the final answer; `--chat-mode ask -y` keeps it read-only and
+     * non-interactive. cli -o text --chat-mode ask -y PROMPT = 7 slots. */
     char **argv = malloc((7 + nextra + 1) * sizeof(char *));
     if (!argv) {
         free(prompt);

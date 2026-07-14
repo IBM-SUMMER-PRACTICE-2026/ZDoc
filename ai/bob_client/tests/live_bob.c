@@ -1,7 +1,7 @@
 /* live_bob.c — manual end-to-end check against the *real* Bob CLI.
  *
  * Not part of `make test` (that stays offline). Requires bob on PATH with a
- * valid session/API key, and the zdoc-diagram skill discoverable. Build & run:
+ * valid session/API key (the contract ships in the prompt). Build & run:
  *
  *     make live      # from ai/bob_client
  *
