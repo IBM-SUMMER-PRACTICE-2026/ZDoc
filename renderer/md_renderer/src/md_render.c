@@ -72,7 +72,7 @@ static const Module **build_module_index(const Module *modules, size_t module_co
  * expected one); a genuine problem surfaces later when the file itself
  * fails to open for writing. */
 static void mkdir_p(const char *dir) {
-    char tmp[1024];
+    char tmp[MD_PATH_MAX];
     snprintf(tmp, sizeof tmp, "%s", dir);
     size_t len = strlen(tmp);
     if(len == 0) return;
@@ -155,14 +155,14 @@ static enum ZDoc_Error write_module_file(const modtree_dir_table_t *dirs, const 
     const char *language = f->name ? language_for_name(f->name) : NULL;
     const Module *mod = by_file[file_index];
 
-    char relpath[900];
+    char relpath[MD_PATH_MAX];
     enum ZDoc_Error relpath_status = md_output_relpath(dirs, files, file_index, relpath, sizeof relpath);
     if(relpath_status != ZDOC_OK) return relpath_status;
 
-    char full_path[1200];
+    char full_path[MD_PATH_MAX];
     snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
 
-    char dir_only[1200];
+    char dir_only[MD_PATH_MAX];
     snprintf(dir_only, sizeof dir_only, "%s", full_path);
     char *slash = strrchr(dir_only, '/');
     if(slash) { *slash = '\0'; mkdir_p(dir_only); }
@@ -170,7 +170,7 @@ static enum ZDoc_Error write_module_file(const modtree_dir_table_t *dirs, const 
     FILE *o = fopen(full_path, "wb");
     if(!o) return ZDOC_FILE_WRITE_FAILED;
 
-    char src_path[900];
+    char src_path[MD_PATH_MAX];
     modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
     fprintf(o, "# Module: %s\n\n", src_path);
 
