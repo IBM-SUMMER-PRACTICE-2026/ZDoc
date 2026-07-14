@@ -28,6 +28,8 @@
 extern "C" {
 #endif
 
+#define MD_PATH_MAX 4096
+
 /* Render the whole tree as Markdown under out_dir: one .md file per entry
  * in 'files' (mirroring the source directory structure) plus a root
  * index.md linking to each of them. Each file is matched back to its
