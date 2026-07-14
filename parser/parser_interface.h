@@ -8,8 +8,10 @@
 
 enum Language{
     C = 0x00,
-    JAVA = 0x01,
-    PLX = 0x02
+    CPLUSPLUS = 0x01,
+    JAVA = 0x02,
+    PLX = 0x03,
+    PLXMAC = 0x04
 };
 
 enum ZDoc_Error language_from_name(const char* name, enum Language* lang);
