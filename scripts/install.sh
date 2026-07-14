@@ -16,15 +16,15 @@
 # Environment:
 #   ZDOC_RELEASE_REPO    owner/name of the GitOps release repo.
 #                         Must match the RELEASE_REPO repository variable
-#                         configured for .github/workflows/release.yml -
-#                         the placeholder default below almost certainly
-#                         needs to be overridden for your fork/org.
+#                         configured for .github/workflows/release.yml - the
+#                         default below is this repo's; override it if
+#                         you're running this against a fork.
 #   ZDOC_RELEASE_BRANCH   branch the release repo publishes to (default: release)
 #   ZDOC_VERSION          version to install, e.g. v0.2.0     (default: latest)
 #   ZDOC_INSTALL_DIR      where to put the zdoc binary        (default: $HOME/bin)
 set -eu
 
-RELEASE_REPO=${ZDOC_RELEASE_REPO:-IBM-SUMMER-PRACTICE-2026/ZDoc-release}
+RELEASE_REPO=${ZDOC_RELEASE_REPO:-IBM-SUMMER-PRACTICE-2026/ZDoc-releases}
 RELEASE_BRANCH=${ZDOC_RELEASE_BRANCH:-release}
 INSTALL_DIR=${ZDOC_INSTALL_DIR:-"$HOME/bin"}
 API_URL=${ZDOC_API_URL:-https://api.github.com}

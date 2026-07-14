@@ -178,7 +178,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Assemble every platform's binary under dist/<version>/ (one file per OS,
+  # Assemble every platform's binary under dist/<tag>/ (one file per OS,
   # distinctly named) and publish that folder to the GitOps repo, alongside
   # whatever earlier versions are already there.
   # ---------------------------------------------------------------------------
@@ -188,16 +188,19 @@ jobs:
     env:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       RELEASE_TAG: ${{ needs.check-tag.outputs.tag }}
-      VERSION: ${{ needs.check-tag.outputs.version }}
     steps:
       - name: Download all platform artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts   # each artifact -> artifacts/<platform>/bin/zdoc[.exe]
 
-      - name: Assemble dist/<version>/
+      # Folder is named after the full tag (v0.0.1), not the bare version
+      # (0.0.1) - install.sh's "find the latest version" lookup matches
+      # v<major>.<minor>.<patch>-shaped folder names at the release repo's
+      # root, so the two need to agree.
+      - name: Assemble dist/<tag>/
         run: |
-          mkdir -p "dist/$VERSION"
+          mkdir -p "dist/$RELEASE_TAG"
           for platform_dir in artifacts/*/; do
             platform=$(basename "$platform_dir")
             bin=$(find "$platform_dir/bin" -maxdepth 1 -type f | head -n1)
@@ -206,11 +209,11 @@ jobs:
               exit 1
             fi
             case "$bin" in
-              *.exe) cp "$bin" "dist/$VERSION/zdoc-$platform.exe" ;;
-              *)     cp "$bin" "dist/$VERSION/zdoc-$platform" ;;
+              *.exe) cp "$bin" "dist/$RELEASE_TAG/zdoc-$platform.exe" ;;
+              *)     cp "$bin" "dist/$RELEASE_TAG/zdoc-$platform" ;;
             esac
           done
-          ls -la "dist/$VERSION"
+          ls -la "dist/$RELEASE_TAG"
 
       # Ensure the GitOps repo exists, creating it (under its owner) if this
       # is the very first release.
@@ -245,10 +248,10 @@ jobs:
               -d "{\"name\":\"$name\",\"private\":true,\"auto_init\":false}" >/dev/null
 
       # Clone whatever is already on the GitOps branch (so earlier versions'
-      # folders survive), layer this release's dist/<version>/ on top, and
+      # folders survive), layer this release's dist/<tag>/ on top, and
       # push - a plain (non-force) push, since we're adding to the branch,
       # not replacing it.
-      - name: Publish dist/<version>/ to the GitOps repo
+      - name: Publish dist/<tag>/ to the GitOps repo
         run: |
           remote="https://x-access-token:${RELEASE_TOKEN}@github.com/$RELEASE_REPO.git"
           work=$(mktemp -d)
