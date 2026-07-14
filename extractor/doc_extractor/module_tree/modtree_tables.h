@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <stdint.h>
+#include "../../../zdoc/error_interface.h"
 
 /* ---------- directory table ----------
  * Each directory stores only its own name plus the index of its parent
@@ -59,8 +60,8 @@ int modtree_intern_file(modtree_file_table_t* t, const char* name, int parent_di
 int modtree_dir_path(const modtree_dir_table_t* t, int dir_index, char* out, size_t out_size);
 
 /* Reconstructs the full relative path for a file (e.g. "folder1/folder2/file1.plx")
- * into out. Returns 0 on success, -1 if out was too small. */
-int modtree_file_path(const modtree_dir_table_t *dirs, const modtree_file_table_t *files, 
+ * into out. Returns ZDOC_OK on success, ZDOC_PATH_TOO_LONG if out was too small. */
+enum ZDoc_Error modtree_file_path(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         int file_index, char *out, size_t out_size);
 
 /* Method that returns how many files there are to parse and */

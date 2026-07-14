@@ -97,12 +97,13 @@ static void mkdir_p(const char *dir) {
  * guaranteed unique where swapping wasn't. Used both as the actual write
  * location and as index.md's link target, so the two can never disagree
  * with each other. */
-static int md_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+static enum ZDoc_Error md_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                               size_t file_index, char *out, size_t out_size) {
     char src_path[900];
-    if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != 0) return -1;
+    enum ZDoc_Error status = modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
+    if(status != ZDOC_OK) return status;
     int n = snprintf(out, out_size, "%s.md", src_path);
-    return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
+    return (n < 0 || (size_t)n >= out_size) ? ZDOC_PATH_TOO_LONG : ZDOC_OK;
 }
 
 static void write_param_table(FILE *o, const Symbol *s) {
@@ -139,15 +140,24 @@ static void write_symbol(FILE *o, const Symbol *s, const char *language) {
     fputs("\n</details>\n\n", o);
 }
 
-static int write_module_file(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
-                              const Module **by_file,
+/* Whether status falls within the contiguous enum ZDoc_Error range, as
+ * opposed to garbage (e.g. an uninitialized Module.status). Duplicated in
+ * html_renderer for the same reason as language_for_name - no shared stage
+ * left to hold one copy. */
+static int zdoc_status_is_valid(enum ZDoc_Error status) {
+    return status >= ZDOC_UNSUPPORTED_LANGUAGE && status <= ZDOC_UNSUPPORTED_FORMAT;
+}
+
+static enum ZDoc_Error write_module_file(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                              const Module **by_file, const Module *modules, size_t module_count,
                               size_t file_index, const char *out_dir) {
     const modtree_file_t *f = &files->files[file_index];
     const char *language = f->name ? language_for_name(f->name) : NULL;
     const Module *mod = by_file[file_index];
 
     char relpath[900];
-    if(md_output_relpath(dirs, files, file_index, relpath, sizeof relpath) != 0) return -1;
+    enum ZDoc_Error relpath_status = md_output_relpath(dirs, files, file_index, relpath, sizeof relpath);
+    if(relpath_status != ZDOC_OK) return relpath_status;
 
     char full_path[1200];
     snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
@@ -158,18 +168,26 @@ static int write_module_file(const modtree_dir_table_t *dirs, const modtree_file
     if(slash) { *slash = '\0'; mkdir_p(dir_only); }
 
     FILE *o = fopen(full_path, "wb");
-    if(!o) return -1;
+    if(!o) return ZDOC_FILE_WRITE_FAILED;
 
     char src_path[900];
     modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
     fprintf(o, "# Module: %s\n\n", src_path);
 
-    if(mod) {
+    if(!mod) {
+        enum ZDoc_Error file_status = (file_index < module_count) ? modules[file_index].status : ZDOC_DEFAULT;
+        fputs("\n*Parser failed for this file — no documentation extracted", o);
+        if(file_status != ZDOC_OK && zdoc_status_is_valid(file_status))
+            fprintf(o, " (error code %d)", (int)file_status);
+        fputs(".*\n", o);
+    } else if(mod->symbolCount == 0)
+        fputs("\n*No documented symbols.*\n", o);
+    else
         for(int k = 0; k < mod->symbolCount; k++) write_symbol(o, &mod->symbols[k], language);
-    }
 
-    fclose(o);
-    return 0;
+    enum ZDoc_Error rc = ferror(o) ? ZDOC_FILE_WRITE_FAILED : ZDOC_OK;
+    if(fclose(o) != 0) rc = ZDOC_FILE_WRITE_FAILED;
+    return rc;
 }
 
 /* Recursively prints out_dir's directory/file structure as a nested,
@@ -186,41 +204,43 @@ static void print_tree(FILE *idx, const modtree_dir_table_t *dirs, const modtree
     for(size_t i = 0; i < files->count; i++) {
         if(files->files[i].parent_dir_index != dir_index) continue;
         char relpath[900];
-        if(md_output_relpath(dirs, files, i, relpath, sizeof relpath) != 0) continue;
+        if(md_output_relpath(dirs, files, i, relpath, sizeof relpath) != ZDOC_OK) continue;
         for(int d = 0; d < depth; d++) fputs("  ", idx);
         fprintf(idx, "- [%s](%s)\n", files->files[i].name ? files->files[i].name : "", relpath);
     }
 }
 
-static int write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         const char *out_dir, const char *title) {
     char path[1200];
     snprintf(path, sizeof path, "%s/index.md", out_dir);
 
     FILE *o = fopen(path, "wb");
-    if(!o) return -1;
+    if(!o) return ZDOC_FILE_WRITE_FAILED;
 
     fprintf(o, "# %s\n\n", (title && title[0]) ? title : "Documentation");
     print_tree(o, dirs, files, -1, 0);
 
-    fclose(o);
-    return 0;
+    enum ZDoc_Error rc = ferror(o) ? ZDOC_FILE_WRITE_FAILED : ZDOC_OK;
+    if(fclose(o) != 0) rc = ZDOC_FILE_WRITE_FAILED;
+    return rc;
 }
 
-int md_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+enum ZDoc_Error md_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
               const Module *modules, size_t module_count,
               const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
     const Module **by_file = build_module_index(modules, module_count, files->count);
-    if(!by_file) return -1;
+    if(!by_file) return ZDOC_OUT_OF_MEMORY;
 
-    int rc = 0;
+    enum ZDoc_Error rc = ZDOC_OK;
     for(size_t i = 0; i < files->count; i++) {
-        if(write_module_file(dirs, files, by_file, i, out_dir) != 0) { rc = -1; break; }
+        rc = write_module_file(dirs, files, by_file, modules, module_count, i, out_dir);
+        if(rc != ZDOC_OK) break;
     }
 
     free(by_file);
-    if(rc != 0) return rc;
+    if(rc != ZDOC_OK) return rc;
     return write_index(dirs, files, out_dir, title);
 }

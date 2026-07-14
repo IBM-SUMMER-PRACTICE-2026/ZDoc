@@ -17,7 +17,7 @@ static int emit_module(const char *path) {
     Module *m = java_parse(path);
     clock_t t1 = clock();
     if(!m) {
-        fprintf(stderr, "zdoc-java-parser: %s: out of memory\n", path);
+        fprintf(stderr, "zdoc-java-parser: %s: failed to parse (see above)\n", path);
         return 1;
     }
 

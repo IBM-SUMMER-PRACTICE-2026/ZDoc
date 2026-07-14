@@ -17,10 +17,10 @@ int main(void) {
     assert(global_file_table.count == 1);      /* table really has one file */
 
     /* --- Act: run the code under test --- */
-    int rc = init_resources();
+    enum ZDoc_Error rc = init_resources();
 
     /* --- Assert: all globals are correct --- */
-    assert(rc == 0);                           /* init reported success */
+    assert(rc == ZDOC_OK);                     /* init reported success */
     assert(files_count == 1);                  /* count picked up from the table */
     assert(global_parsed_files_arry != NULL);  /* output array was allocated */
     assert(atomic_load(&finished_files) == 0); /* nothing parsed yet */

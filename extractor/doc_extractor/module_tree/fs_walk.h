@@ -2,6 +2,7 @@
 #define ZDOC_FS_WALK_H
 
 #include "modtree_tables.h"
+#include "../../../zdoc/error_interface.h"
 #include <stddef.h>
 
 /* Maximum length (bytes) of the root prefix below. */
@@ -40,10 +41,12 @@ extern char fs_walk_root_prefix[FS_WALK_PATH_MAX];
  *            entries are considered. When non-zero, the walk descends into
  *            every non-excluded subdirectory as before.
  *
- * Returns 0 on success, -1 if root_disk_path could not be opened for
- * reading or an internal allocation failed.
+ * Returns ZDOC_OK on success. ZDOC_FS_WALK_FAILED if root_disk_path (or a
+ * directory beneath it) could not be resolved, opened or read;
+ * ZDOC_OUT_OF_MEMORY if interning a directory or file failed; or
+ * ZDOC_PATH_TOO_LONG if a reconstructed disk path overflowed its buffer.
  */
-int fs_walk(const char* root_disk_path,
+enum ZDoc_Error fs_walk(const char* root_disk_path,
             modtree_dir_table_t* dirs,
             modtree_file_table_t* files,
             const char** extensions,

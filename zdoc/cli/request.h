@@ -5,9 +5,11 @@
 #include <stdio.h>
 
 #include "options.h"
+#include "../error_interface.h"
 
-/* Checks that every source path exists. Returns 0 if all do. */
-int zd_request_validate(const zd_options *o);
+/* Checks that every source path exists. Returns ZDOC_OK if all do,
+ * ZDOC_FS_WALK_FAILED if any path could not be found. */
+enum ZDoc_Error zd_request_validate(const zd_options *o);
 
 /* Writes the generate-request JSON to out. Until the daemon's transport
  * is decided, main() sends it to stdout; later a daemon client module

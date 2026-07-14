@@ -4,6 +4,7 @@
 #include "../parser/plx_parser/plx_parser.h"
 #include "../parser/java_parser/java_parser.h"
 #include "../parser/c_parser/c_parser.h"
+#include "../zdoc/error_interface.h"
 
 enum Language{
     C = 0x00,
@@ -11,7 +12,7 @@ enum Language{
     PLX = 0x02
 };
 
-enum Language language_from_name(const char* name);
+enum ZDoc_Error language_from_name(const char* name, enum Language* lang);
 
 Module* parse_file(enum Language lan, const char* path);
 

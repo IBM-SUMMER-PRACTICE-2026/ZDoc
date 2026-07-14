@@ -33,8 +33,11 @@ extern "C" {
  * index.md linking to each of them. Each file is matched back to its
  * parsed module via pathIndex (modules[0..module_count)) - a file with no
  * match is rendered with zero symbols. 'title' (may be NULL) is used as
- * index.md's heading. Returns 0 on success, -1 on a write/IO failure. */
-int md_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+ * index.md's heading. Returns ZDOC_OK on success; ZDOC_OUT_OF_MEMORY if the
+ * module index could not be allocated, ZDOC_PATH_TOO_LONG if a
+ * reconstructed output path overflowed its buffer, or ZDOC_FILE_WRITE_FAILED
+ * if a file could not be opened, written or closed. */
+enum ZDoc_Error md_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
               const Module *modules, size_t module_count,
               const char *out_dir, const char *title);
 

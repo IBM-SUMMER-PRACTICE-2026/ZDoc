@@ -147,9 +147,11 @@ Module *java_parse(const char *path) {
 
     FileBuffer fb = read_file_buffer(path);
     if(!fb.data) {
-        // read_file_buffer already reported the failure; still return a valid,
-        // empty module so the caller can carry on (mirrors cp_parser's behaviour).
-        return m;
+        // read_file_buffer already reported the failure; mirror cp_parser's
+        // contract (return NULL) so parser_interface.c's caller sees this as
+        // a real failure instead of an empty-but-successfully-parsed module.
+        free_module(m);
+        return NULL;
     }
     const char *src = fb.data;
     size_t len = fb.len;

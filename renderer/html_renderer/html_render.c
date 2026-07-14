@@ -82,12 +82,13 @@ static const Module **build_module_index(const Module *modules, size_t module_co
  * guaranteed unique where swapping wasn't. Used both as the actual write
  * location and as index.html's link target, so the two can never disagree
  * with each other. */
-static int html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+static enum ZDoc_Error html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                                 size_t file_index, char *out, size_t out_size) {
     char src_path[900];
-    if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != 0) return -1;
+    enum ZDoc_Error status = modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
+    if(status != ZDOC_OK) return status;
     int n = snprintf(out, out_size, "%s.html", src_path);
-    return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
+    return (n < 0 || (size_t)n >= out_size) ? ZDOC_PATH_TOO_LONG : ZDOC_OK;
 }
 
 /* Best effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -273,7 +274,7 @@ static void render_index_tree(FILE *idx, const adjacency_t *a, const modtree_dir
         render_index_tree(idx, a, dirs, files, c);
     for(int f = a->file_child[d]; f != -1; f = a->file_sib[f]) {
         char relpath[900];
-        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) != 0) continue;
+        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) != ZDOC_OK) continue;
         fputs("<li><a href=\"", idx);
         put_escaped(idx, relpath);
         fputs("\">", idx);
@@ -344,17 +345,27 @@ static void write_foot(FILE *o, int has_diagram) {
     fputs("</body>\n</html>\n", o);
 }
 
+/* Whether status falls within the contiguous enum ZDoc_Error range, as
+  opposed to garbage (e.g. an uninitialized Module.status). Duplicated in
+  md_renderer for the same reason as language_for_name - no shared stage
+  left to hold one copy. */
+static int zdoc_status_is_valid(enum ZDoc_Error status) {
+    return status >= ZDOC_UNSUPPORTED_LANGUAGE && status <= ZDOC_UNSUPPORTED_FORMAT;
+}
+
 /* Writes one file's own out_dir/<relpath>.html: page shell plus that
  * file's symbols. Mirrors md_renderer's write_module_file - same relpath
  * scheme, same mkdir-of-parent-then-fopen shape. */
-static int write_file_page(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
-                            const Module **by_file, size_t file_index, const char *out_dir) {
+static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+                            const Module **by_file, const Module *modules, size_t module_count,
+                            size_t file_index, const char *out_dir) {
     const modtree_file_t *file = &files->files[file_index];
     const char *language = file->name ? language_for_name(file->name) : NULL;
     const Module *mod = by_file[file_index];
 
     char relpath[900];
-    if(html_output_relpath(dirs, files, file_index, relpath, sizeof relpath) != 0) return -1;
+    enum ZDoc_Error relpath_status = html_output_relpath(dirs, files, file_index, relpath, sizeof relpath);
+    if(relpath_status != ZDOC_OK) return relpath_status;
 
     char full_path[1200];
     snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
@@ -365,7 +376,7 @@ static int write_file_page(const modtree_dir_table_t *dirs, const modtree_file_t
     if(slash) { *slash = '\0'; mkdir_p(dir_only); }
 
     FILE *o = fopen(full_path, "wb");
-    if(!o) return -1;
+    if(!o) return ZDOC_FILE_WRITE_FAILED;
 
     int has_diagram = 0;
     if(mod)
@@ -374,29 +385,33 @@ static int write_file_page(const modtree_dir_table_t *dirs, const modtree_file_t
 
     write_head(o, file->name ? file->name : "(unnamed)", has_diagram);
 
-    if(!mod)
-        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted.</p>\n", o);
-    else if(mod->symbolCount == 0)
+    if(!mod) {
+        enum ZDoc_Error file_status = (file_index < module_count) ? modules[file_index].status : ZDOC_DEFAULT;
+        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted", o);
+        if(file_status != ZDOC_OK && zdoc_status_is_valid(file_status))
+            fprintf(o, " (error code %d)", (int)file_status);
+        fputs(".</p>\n", o);
+    } else if(mod->symbolCount == 0)
         fputs("<p class=\"empty\">No documented symbols.</p>\n", o);
     if(mod)
         for(int k = 0; k < mod->symbolCount; k++) render_symbol(o, &mod->symbols[k], language);
 
     write_foot(o, has_diagram);
 
-    int rc = ferror(o) ? -1 : 0;
-    if(fclose(o) != 0) rc = -1;
+    enum ZDoc_Error rc = ferror(o) ? ZDOC_FILE_WRITE_FAILED : ZDOC_OK;
+    if(fclose(o) != 0) rc = ZDOC_FILE_WRITE_FAILED;
     return rc;
 }
 
 /* Writes out_dir/index.html: page shell plus the nested directory/file tree,
  * files linking out to their own rendered pages. No diagrams live on this
  * page, so it never needs the Mermaid script. */
-static int write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         const char *out_dir, const char *title) {
     char path[1200];
     snprintf(path, sizeof path, "%s/index.html", out_dir);
     FILE *o = fopen(path, "wb");
-    if(!o) return -1;
+    if(!o) return ZDOC_FILE_WRITE_FAILED;
 
     const char *t = (title && title[0]) ? title : "Documentation";
     write_head(o, t, 0);
@@ -408,7 +423,7 @@ static int write_index(const modtree_dir_table_t *dirs, const modtree_file_table
         render_index_tree(o, &a, dirs, files, d);
     for(int f = a.file_root; f != -1; f = a.file_sib[f]) {
         char relpath[900];
-        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) == 0) {
+        if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) == ZDOC_OK) {
             fputs("<li><a href=\"", o);
             put_escaped(o, relpath);
             fputs("\">", o);
@@ -421,25 +436,26 @@ static int write_index(const modtree_dir_table_t *dirs, const modtree_file_table
     fputs("</ul>\n", o);
     write_foot(o, 0);
 
-    int rc = ferror(o) ? -1 : 0;
-    if(fclose(o) != 0) rc = -1;
+    enum ZDoc_Error rc = ferror(o) ? ZDOC_FILE_WRITE_FAILED : ZDOC_OK;
+    if(fclose(o) != 0) rc = ZDOC_FILE_WRITE_FAILED;
     return rc;
 }
 
 //Renders the tree as one out_dir/index.html plus one rendered page per file (embedded CSS; Mermaid JS is pulled in per-page only when that file carries block diagrams).
-int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+enum ZDoc_Error html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                  const Module *modules, size_t module_count,
                  const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
     const Module **by_file = build_module_index(modules, module_count, files->count);
 
-    int rc = 0;
+    enum ZDoc_Error rc = ZDOC_OK;
     for(size_t i = 0; i < files->count; i++) {
-        if(write_file_page(dirs, files, by_file, i, out_dir) != 0) { rc = -1; break; }
+        rc = write_file_page(dirs, files, by_file, modules, module_count, i, out_dir);
+        if(rc != ZDOC_OK) break;
     }
 
     free(by_file);
-    if(rc != 0) return rc;
+    if(rc != ZDOC_OK) return rc;
     return write_index(dirs, files, out_dir, title);
 }

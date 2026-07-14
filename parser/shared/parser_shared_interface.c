@@ -122,6 +122,7 @@ Module * init_module(const char *path) {
     mod->symbols = NULL;
     mod->symbolCount = 0;
     mod->symbolCap = 0;
+    mod->status = ZDOC_DEFAULT;
     return mod;
 }
 
