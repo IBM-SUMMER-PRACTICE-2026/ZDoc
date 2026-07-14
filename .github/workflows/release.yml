@@ -1,15 +1,17 @@
 name: build & release
 
-# Release is tag-driven: pushing a commit to main whose HEAD carries a
-# version tag (v<version>, e.g. v0.1.0) triggers a release. A plain push to
-# main with no tag on HEAD does nothing. When a release is due, the version
-# is pulled from the tag (not from the in-source ZD_VERSION define - the tag
-# is now the single source of truth) and written into zdoc/cli/options.h
-# before each platform builds, so every binary reports the tag it was built
-# from.
+# Release is tag-driven: a version tag (v<version>, e.g. v0.1.0) triggers a
+# release, whether it's pushed together with a commit to main or pushed on
+# its own against an already-merged commit - either way, check-tag looks for
+# a version tag on HEAD and no-ops if it doesn't find one (so a plain push to
+# main with no tag does nothing). When a release is due, the version is
+# pulled from the tag (not from the in-source ZD_VERSION define - the tag is
+# now the single source of truth) and written into zdoc/cli/options.h before
+# each platform builds, so every binary reports the tag it was built from.
 on:
   push:
     branches: [main]
+    tags: ['v*']
 
 permissions:
   contents: read
