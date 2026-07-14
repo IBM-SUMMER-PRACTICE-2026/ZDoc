@@ -84,7 +84,7 @@ static const Module **build_module_index(const Module *modules, size_t module_co
  * with each other. */
 static enum ZDoc_Error html_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                                 size_t file_index, char *out, size_t out_size) {
-    char src_path[900];
+    char src_path[HTML_PATH_MAX];
     enum ZDoc_Error status = modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
     if(status != ZDOC_OK) return status;
     int n = snprintf(out, out_size, "%s.html", src_path);
@@ -95,7 +95,7 @@ static enum ZDoc_Error html_output_relpath(const modtree_dir_table_t *dirs, cons
   expected one); a genuine problem surfaces later when index.html itself
   fails to open for writing. */
 static void mkdir_p(const char *dir) {
-    char tmp[1024];
+    char tmp[HTML_PATH_MAX];
     snprintf(tmp, sizeof tmp, "%s", dir);
     size_t len = strlen(tmp);
     if(len == 0) return;
@@ -273,7 +273,7 @@ static void render_index_tree(FILE *idx, const adjacency_t *a, const modtree_dir
     for(int c = a->dir_child[d]; c != -1; c = a->dir_sib[c])
         render_index_tree(idx, a, dirs, files, c);
     for(int f = a->file_child[d]; f != -1; f = a->file_sib[f]) {
-        char relpath[900];
+        char relpath[HTML_PATH_MAX];
         if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) != ZDOC_OK) continue;
         fputs("<li><a href=\"", idx);
         put_escaped(idx, relpath);
@@ -363,14 +363,14 @@ static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const mo
     const char *language = file->name ? language_for_name(file->name) : NULL;
     const Module *mod = by_file[file_index];
 
-    char relpath[900];
+    char relpath[HTML_PATH_MAX];
     enum ZDoc_Error relpath_status = html_output_relpath(dirs, files, file_index, relpath, sizeof relpath);
     if(relpath_status != ZDOC_OK) return relpath_status;
 
-    char full_path[1200];
+    char full_path[HTML_PATH_MAX];
     snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
 
-    char dir_only[1200];
+    char dir_only[HTML_PATH_MAX];
     snprintf(dir_only, sizeof dir_only, "%s", full_path);
     char *slash = strrchr(dir_only, '/');
     if(slash) { *slash = '\0'; mkdir_p(dir_only); }
@@ -408,7 +408,7 @@ static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const mo
  * page, so it never needs the Mermaid script. */
 static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         const char *out_dir, const char *title) {
-    char path[1200];
+    char path[HTML_PATH_MAX];
     snprintf(path, sizeof path, "%s/index.html", out_dir);
     FILE *o = fopen(path, "wb");
     if(!o) return ZDOC_FILE_WRITE_FAILED;
@@ -422,7 +422,7 @@ static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtre
     for(int d = a.dir_root; d != -1; d = a.dir_sib[d])
         render_index_tree(o, &a, dirs, files, d);
     for(int f = a.file_root; f != -1; f = a.file_sib[f]) {
-        char relpath[900];
+        char relpath[HTML_PATH_MAX];
         if(html_output_relpath(dirs, files, (size_t)f, relpath, sizeof relpath) == ZDOC_OK) {
             fputs("<li><a href=\"", o);
             put_escaped(o, relpath);

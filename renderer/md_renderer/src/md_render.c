@@ -99,7 +99,7 @@ static void mkdir_p(const char *dir) {
  * with each other. */
 static enum ZDoc_Error md_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                               size_t file_index, char *out, size_t out_size) {
-    char src_path[900];
+    char src_path[MD_PATH_MAX];
     enum ZDoc_Error status = modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path);
     if(status != ZDOC_OK) return status;
     int n = snprintf(out, out_size, "%s.md", src_path);
@@ -203,7 +203,7 @@ static void print_tree(FILE *idx, const modtree_dir_table_t *dirs, const modtree
     }
     for(size_t i = 0; i < files->count; i++) {
         if(files->files[i].parent_dir_index != dir_index) continue;
-        char relpath[900];
+        char relpath[MD_PATH_MAX];
         if(md_output_relpath(dirs, files, i, relpath, sizeof relpath) != ZDOC_OK) continue;
         for(int d = 0; d < depth; d++) fputs("  ", idx);
         fprintf(idx, "- [%s](%s)\n", files->files[i].name ? files->files[i].name : "", relpath);
@@ -212,7 +212,7 @@ static void print_tree(FILE *idx, const modtree_dir_table_t *dirs, const modtree
 
 static enum ZDoc_Error write_index(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                         const char *out_dir, const char *title) {
-    char path[1200];
+    char path[MD_PATH_MAX];
     snprintf(path, sizeof path, "%s/index.md", out_dir);
 
     FILE *o = fopen(path, "wb");

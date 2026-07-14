@@ -32,6 +32,8 @@
 extern "C" {
 #endif
 
+#define HTML_PATH_MAX 4096
+
 /* Render the tree as out_dir/index.html plus one out_dir/<relpath>.html per
  * file (embedded CSS, no external dependencies). Each file is matched back
  * to its parsed module via pathIndex (modules[0..module_count)) - a file
