@@ -12,10 +12,12 @@ Current state: `ai/bob_client/` is a library unit with two composable halves:
 - **Invocation + sanitize** (`bob_client.c`) — shells out to Bob and sanitizes
   the response into an embeddable Mermaid flowchart.
 
-Bob's output contract is defined by the `zdoc-diagram` **Bob extension** in
-`.bob/extensions/zdoc-diagram/` (`bob-extension.json` + `context.md` +
-`examples/`). Both halves are unit-testable today; nothing in the pipeline calls
-them yet.
+Bob's output contract is carried **in the prompt** (`build_prompt` in
+`bob_client.c`), so online mode is correct with no Bob extension linked — there
+is nothing to install or configure. (An earlier design shipped the contract as a
+`.bob/extensions/zdoc-diagram/` extension that had to be linked; that has been
+removed in favour of the self-contained prompt.) Both halves are unit-testable
+today.
 
 ---
 
