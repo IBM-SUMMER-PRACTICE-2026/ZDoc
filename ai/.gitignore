@@ -1,0 +1,3 @@
+# ai/ layer build artifacts
+*.o
+ai_mode_live
