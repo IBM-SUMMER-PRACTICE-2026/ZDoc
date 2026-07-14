@@ -1,0 +1,52 @@
+name: release
+
+# GitOps release pipeline: on every push to main, build and test the project,
+# then — only when the in-source version (ZD_VERSION) has been bumped to a new
+# value — tag it and publish the built artifacts to a separate GitOps repo.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # needed to push the version tag back to this repo
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Target of the GitOps publish. Override via repository variables/secrets.
+  RELEASE_REPO: ${{ vars.RELEASE_REPO }}
+  GITOPS_BRANCH: ${{ vars.GITOPS_BRANCH || 'release' }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags for idempotent tagging
+
+      - name: Build
+        run: make all
+
+      - name: Test
+        run: make test
+
+      - name: Collect artifacts
+        run: make dist
+
+      - name: Tag version
+        id: tag
+        run: sh scripts/tag-version.sh
+
+      - name: Push tag
+        if: steps.tag.outputs.created == 'true'
+        run: git push origin "${{ steps.tag.outputs.tag }}"
+
+      - name: Publish to GitOps repo
+        if: steps.tag.outputs.created == 'true'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: sh scripts/publish.sh

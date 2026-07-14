@@ -11,7 +11,7 @@
 # Component directories (one or two levels deep) that ship a Makefile.
 MODULES := $(patsubst %/Makefile,%,$(wildcard */Makefile */*/Makefile))
 
-.PHONY: all test clean list
+.PHONY: all test clean list dist
 
 all test clean:
 	@if [ -z "$(strip $(MODULES))" ]; then \
@@ -22,6 +22,10 @@ all test clean:
 			$(MAKE) -C $$d $@ || exit $$?; \
 		done; \
 	fi
+
+# Build everything, then collect the release artifacts into ./dist.
+dist: all
+	@sh scripts/collect-artifacts.sh
 
 # Show which components are currently wired into the build.
 list:
