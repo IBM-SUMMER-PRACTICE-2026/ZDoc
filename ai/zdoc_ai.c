@@ -18,9 +18,31 @@
 
 static const char *PROMPT =
     "Read the source file named below and produce a ZDoc block diagram for EACH\n"
-    "function listed. For every function output EXACTLY ONE Mermaid `flowchart\n"
-    "TD` block, preceded by a header line `## line <N>: <name>` using that\n"
-    "function's start line, and nothing else — no prose.\n"
+    "function listed. First actually read the file — never infer a function's\n"
+    "behaviour from its name. Diagram a function ONLY from the code in its body.\n"
+    "\n"
+    "Faithfulness — do NOT invent anything:\n"
+    "- Every node must correspond to real code in that function's body: an\n"
+    "  actual statement, branch, loop, or call. If it is not in the source, it\n"
+    "  is not in the diagram.\n"
+    "- Every decision {..} must be a branch literally present in the code. Every\n"
+    "  call (..) must be a real call site, using the callee's exact name from\n"
+    "  the source. Do NOT add error paths, returns, retries, validation, or any\n"
+    "  step the code does not contain.\n"
+    "- Use only identifiers and names that appear in the source; never rename,\n"
+    "  translate, or guess a name.\n"
+    "- Do not guess. If a listed function is not found in the file, or its body\n"
+    "  is empty or pure data, output `flowchart TD` then one node\n"
+    "  `    A[No executable logic]` for it. If the file cannot be read at all,\n"
+    "  output `flowchart TD` then `    A[Source unavailable]` — never a made-up\n"
+    "  diagram.\n"
+    "- Before finishing each diagram, re-check every node and edge against the\n"
+    "  function body and delete any that do not map to specific code you can\n"
+    "  point to.\n"
+    "\n"
+    "Output: for every function, EXACTLY ONE Mermaid `flowchart TD` block\n"
+    "preceded by a header line `## line <N>: <name>` (its start line), and\n"
+    "nothing else — no prose.\n"
     "\n"
     "Rules for every flowchart:\n"
     "- First line is `flowchart TD`; then one node per line, 4-space indented.\n"
@@ -35,9 +57,7 @@ static const char *PROMPT =
     "  label text under ~6 words.\n"
     "- Allowed characters inside a label: letters, digits, spaces and : = ? -\n"
     "  only. Never put quotes, brackets, braces, parentheses, pipes, <>, &, #,\n"
-    "  ;, / or backticks inside label text; reword instead.\n"
-    "- If a function body is empty or pure data, output `flowchart TD` then a\n"
-    "  single node `    A[No executable logic]`.\n";
+    "  ;, / or backticks inside label text; reword instead.\n";
 
 int main(int argc, char **argv)
 {
