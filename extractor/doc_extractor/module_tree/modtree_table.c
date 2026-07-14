@@ -83,51 +83,50 @@ int modtree_intern_file(modtree_file_table_t* t, const char* name, int parent_di
 
 /* ---------- path reconstruction ---------- */
 
-/* Recursive helper: builds the full path for dir_index into buf,
- * returns the length written, or -1 on overflow. */
-static int build_dir_path(const modtree_dir_table_t* t, int dir_index, char* buf, size_t buf_size) {
+/* Recursive helper: builds the full path for dir_index into buf.
+ * Returns ZDOC_OK on success, ZDOC_PATH_TOO_LONG on overflow. */
+static enum ZDoc_Error build_dir_path(const modtree_dir_table_t* t, int dir_index, char* buf, size_t buf_size) {
     if (dir_index == -1) {
         buf[0] = '\0';
-        return 0;
+        return ZDOC_OK;
     }
- 
+
     char parent_buf[MODTREE_PATH_BUF];
-    int parent_len = build_dir_path(t, t->dirs[dir_index].parent_index, parent_buf, sizeof(parent_buf));
-    if (parent_len < 0) return -1;
- 
+    enum ZDoc_Error parent_status = build_dir_path(t, t->dirs[dir_index].parent_index, parent_buf, sizeof(parent_buf));
+    if (parent_status != ZDOC_OK) return parent_status;
+
     int written;
-    if (parent_len == 0) {
+    if (parent_buf[0] == '\0') {
         written = snprintf(buf, buf_size, "%s", t->dirs[dir_index].name);
     } else {
         written = snprintf(buf, buf_size, "%s/%s", parent_buf, t->dirs[dir_index].name);
     }
- 
-    if (written < 0 || (size_t)written >= buf_size) return -1;
-    return written;
+
+    if (written < 0 || (size_t)written >= buf_size) return ZDOC_PATH_TOO_LONG;
+    return ZDOC_OK;
 }
 
 int modtree_dir_path(const modtree_dir_table_t* t, int dir_index, char* out, size_t out_size) {
-    int len = build_dir_path(t, dir_index, out, out_size);
-    return (len < 0) ? -1 : 0;
+    return (build_dir_path(t, dir_index, out, out_size) == ZDOC_OK) ? 0 : -1;
 }
 
-int modtree_file_path(const modtree_dir_table_t* dirs, const modtree_file_table_t* files,
+enum ZDoc_Error modtree_file_path(const modtree_dir_table_t* dirs, const modtree_file_table_t* files,
                        int file_index, char* out, size_t out_size) {
     char dir_buf[MODTREE_PATH_BUF];
     int parent_dir_index = files->files[file_index].parent_dir_index;
- 
-    int dir_len = build_dir_path(dirs, parent_dir_index, dir_buf, sizeof(dir_buf));
-    if (dir_len < 0) return -1;
- 
+
+    enum ZDoc_Error dir_status = build_dir_path(dirs, parent_dir_index, dir_buf, sizeof(dir_buf));
+    if (dir_status != ZDOC_OK) return dir_status;
+
     int written;
-    if (dir_len == 0) {
+    if (dir_buf[0] == '\0') {
         written = snprintf(out, out_size, "%s", files->files[file_index].name);
     } else {
         written = snprintf(out, out_size, "%s/%s", dir_buf, files->files[file_index].name);
     }
- 
-    if (written < 0 || (size_t)written >= out_size) return -1;
-    return 0;
+
+    if (written < 0 || (size_t)written >= out_size) return ZDOC_PATH_TOO_LONG;
+    return ZDOC_OK;
 }
 
 int number_of_files(const modtree_file_table_t* t) {

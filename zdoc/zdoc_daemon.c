@@ -51,8 +51,12 @@ void thread_func() {
             global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(ZDOC_PATH_TOO_LONG);
             continue;
         }
-        modtree_file_path(&global_dir_table, &global_file_table,
+        enum ZDoc_Error path_status = modtree_file_path(&global_dir_table, &global_file_table,
                           curr_possition_in_arry, path + prefix_len, 4096 - prefix_len);
+        if (path_status != ZDOC_OK) {
+            global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(path_status);
+            continue;
+        }
 
         char* shrunk = realloc(path, strlen(path) + 1);
         if (shrunk != NULL) {

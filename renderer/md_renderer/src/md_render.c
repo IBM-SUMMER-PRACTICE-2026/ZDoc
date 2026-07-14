@@ -100,7 +100,7 @@ static void mkdir_p(const char *dir) {
 static int md_output_relpath(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                               size_t file_index, char *out, size_t out_size) {
     char src_path[900];
-    if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != 0) return -1;
+    if(modtree_file_path(dirs, files, (int)file_index, src_path, sizeof src_path) != ZDOC_OK) return -1;
     int n = snprintf(out, out_size, "%s.md", src_path);
     return (n < 0 || (size_t)n >= out_size) ? -1 : 0;
 }

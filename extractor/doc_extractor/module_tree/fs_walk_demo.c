@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
     printf("\nreconstructed paths:\n");
     char path[1024];
     for (size_t i = 0; i < files.count; i++) {
-        if (modtree_file_path(&dirs, &files, (int)i, path, sizeof(path)) == 0) {
+        if (modtree_file_path(&dirs, &files, (int)i, path, sizeof(path)) == ZDOC_OK) {
             printf("  %s\n", path);
         } else {
             printf("  <path too long for file index %zu>\n", i);
