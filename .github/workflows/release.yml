@@ -67,10 +67,10 @@ jobs:
             platform: linux-x64
           - os: ubuntu-24.04-arm
             platform: linux-arm64
-          - os: macos-13            # Intel
-            platform: macos-x64
-          - os: macos-14            # Apple Silicon
-            platform: macos-arm64
+          - os: macos-15-large      # Intel - macos-13 was removed from GitHub's
+            platform: macos-x64     # hosted fleet (only the latest 2 macOS
+          - os: macos-15            # versions are kept available); macos-14 is
+            platform: macos-arm64   # now deprecated too, so both legs moved to 15.
           - os: windows-latest      # x64
             platform: windows-x64
             msystem: UCRT64
