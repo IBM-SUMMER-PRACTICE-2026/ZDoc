@@ -7,19 +7,20 @@
  * newlines, whatever — needs no escaping and cannot inject a command.
  *
  * This is a library unit: the AI-mode CLI and the daemon call into it.
- * Part of the ZDoc ai/ layer (see docs/ZDOC.md). POSIX only.
+ * Part of the ZDoc ai/ layer (see docs/ZDOC.md). All OS-specific work lives
+ * behind the bc_spawn_capture seam (spawn.h); this file is portable.
  */
-#define _POSIX_C_SOURCE 200809L
-
 #include "bob_client.h"
+#include "spawn.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
 
-#define READ_CHUNK 4096
+/* strtok_r is POSIX; MSVC spells the same 3-arg function strtok_s. */
+#if defined(_WIN32)
+#define strtok_r strtok_s
+#endif
 
 BobConfig bob_config_default(void)
 {
@@ -98,9 +99,10 @@ static char *build_prompt(const char *language, const char *snippet)
     return p;
 }
 
-/* Fork/exec the Bob CLI, capturing its stdout. Returns a malloc'd,
+/* Invoke the Bob CLI, capturing its stdout. Returns a malloc'd,
  * NUL-terminated buffer of the output (caller frees) and writes bob's exit
- * code to *exit_code. Returns NULL on spawn or read failure. */
+ * code to *exit_code. Returns NULL on spawn or read failure. The actual
+ * process spawn is delegated to the portable bc_spawn_capture seam. */
 static char *run_bob(const BobConfig *cfg, const char *language,
                      const char *snippet, int *exit_code)
 {
@@ -143,83 +145,18 @@ static char *run_bob(const BobConfig *cfg, const char *language,
         argv[k++] = extra[i];
     argv[k] = NULL;
 
-    int fds[2];
-    if (pipe(fds) != 0) {
-        free(prompt);
-        free(argv);
-        free(extra);
-        free(args_storage);
-        return NULL;
-    }
+    /* Hand the assembled argv to the portable spawn seam. argv[0] is the
+     * program to exec; the snippet rides as a single argv element, so no
+     * platform ever has to quote it through a shell. */
+    char *out = NULL;
+    int rc = bc_spawn_capture(argv, &out, exit_code);
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        free(prompt);
-        free(argv);
-        free(extra);
-        free(args_storage);
-        return NULL;
-    }
-
-    if (pid == 0) {
-        /* Child: send stdout down the pipe, then exec bob. */
-        dup2(fds[1], STDOUT_FILENO);
-        close(fds[0]);
-        close(fds[1]);
-        execvp(cli, argv);
-        _exit(127); /* exec failed (e.g. bob not on PATH) */
-    }
-
-    /* Parent: no longer needs the write end, the argv vector, or the prompt. */
-    close(fds[1]);
     free(argv);
     free(prompt);
-
-    char *out = NULL;
-    size_t len = 0, cap = 0;
-    int ok = 1;
-    ssize_t r;
-    char buf[READ_CHUNK];
-    while ((r = read(fds[0], buf, sizeof(buf))) > 0) {
-        if (len + (size_t)r + 1 > cap) {
-            size_t ncap = cap ? cap * 2 : READ_CHUNK * 2;
-            while (ncap < len + (size_t)r + 1)
-                ncap *= 2;
-            char *grown = realloc(out, ncap);
-            if (!grown) {
-                ok = 0;
-                break;
-            }
-            out = grown;
-            cap = ncap;
-        }
-        memcpy(out + len, buf, (size_t)r);
-        len += (size_t)r;
-    }
-    if (r < 0)
-        ok = 0;
-    close(fds[0]);
-
-    int status = 0;
-    waitpid(pid, &status, 0);
     free(extra);
     free(args_storage);
 
-    if (!ok) {
-        free(out);
-        return NULL;
-    }
-    if (!out) {
-        out = malloc(1); /* bob produced nothing; return "" */
-        if (!out)
-            return NULL;
-    }
-    out[len] = '\0';
-
-    *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-    return out;
+    return (rc == 0) ? out : NULL;
 }
 
 /* Extract a sanitized Mermaid flowchart from bob's raw output. Prefers a
