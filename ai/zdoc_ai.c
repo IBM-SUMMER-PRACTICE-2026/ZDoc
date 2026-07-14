@@ -1,20 +1,26 @@
 /* zdoc_ai — local developer tool for AI Assisted (online) diagrams.
  *
  * Give it ONE source file. It parses the file to find each function and its
- * starting line, then prints the Bob prompt plus that function list. Bob reads
- * the file itself and returns one Mermaid flowchart per function, each tagged
- * with its starting line so the diagram is matched back to the right symbol.
+ * starting line, runs Bob once (Bob reads the file itself), then stores the
+ * flowchart Bob returns for each function into that symbol's `diagram` field —
+ * matched back to the right symbol by its starting line.
  *
  *     make -C ai zdoc_ai
- *     ./ai/zdoc_ai path/to/File.(c|java|plx)
+ *     ./ai/zdoc_ai path/to/File.(c|java|plx) [--bob <bob-binary>]
  *
- * No Bob subprocess and no snippet assembly — this just emits the prompt and
- * the (start line, name) list; Bob opens the file. The starting line is the key
- * that ties each returned diagram to its symbol.
+ * Bob is invoked with fork+exec (the prompt is a single argv element, so its
+ * backticks/quotes never touch a shell). Needs bob on PATH (or --bob) with a
+ * valid session/API key. POSIX (local dev tool).
  */
+#define _POSIX_C_SOURCE 200809L
+
 #include "../parser/parser_interface.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 static const char *PROMPT =
     "Read the source file named below and produce a ZDoc block diagram for EACH\n"
@@ -59,13 +65,151 @@ static const char *PROMPT =
     "  only. Never put quotes, brackets, braces, parentheses, pipes, <>, &, #,\n"
     "  ;, / or backticks inside label text; reword instead.\n";
 
+/* Assemble the full prompt: contract + the file to read + the function list
+ * (each with its start line). malloc'd; caller frees. */
+static char *build_prompt(const char *path, const Module *mod)
+{
+    char *buf = NULL;
+    size_t len = 0;
+    FILE *f = open_memstream(&buf, &len);
+    if (!f)
+        return NULL;
+    fputs(PROMPT, f);
+    fprintf(f, "\nFile to read: %s\n", path);
+    fprintf(f, "\nFunctions to diagram (%d), each tagged by its start line:\n",
+            mod->symbolCount);
+    for (int i = 0; i < mod->symbolCount; i++) {
+        const Symbol *s = &mod->symbols[i];
+        fprintf(f, "  line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
+    }
+    fclose(f);
+    return buf;
+}
+
+/* Run `cli` with the prompt as a single argv element, capturing its stdout.
+ * Returns a malloc'd NUL-terminated buffer (caller frees), or NULL if the
+ * process could not run or exited non-zero. */
+static char *run_bob(const char *cli, const char *prompt)
+{
+    int fds[2];
+    if (pipe(fds) != 0)
+        return NULL;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return NULL;
+    }
+    if (pid == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        execlp(cli, cli, "-o", "text", "-y", prompt, (char *)NULL);
+        _exit(127); /* bob not found */
+    }
+
+    close(fds[1]);
+    char *out = NULL;
+    size_t len = 0, cap = 0;
+    char b[4096];
+    ssize_t r;
+    while ((r = read(fds[0], b, sizeof b)) > 0) {
+        if (len + (size_t)r + 1 > cap) {
+            cap = cap ? cap * 2 : 8192;
+            while (cap < len + (size_t)r + 1)
+                cap *= 2;
+            char *g = realloc(out, cap);
+            if (!g) {
+                free(out);
+                out = NULL;
+                break;
+            }
+            out = g;
+        }
+        memcpy(out + len, b, (size_t)r);
+        len += (size_t)r;
+    }
+    close(fds[0]);
+
+    int st = 0;
+    waitpid(pid, &st, 0);
+    if (!out || !WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+        free(out);
+        return NULL;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+/* Copy [start,end) into a fresh string with backticks and trailing whitespace
+ * stripped, so it is safe to embed. malloc'd. */
+static char *clean_flowchart(const char *start, const char *end)
+{
+    size_t span = (size_t)(end - start);
+    char *d = malloc(span + 1);
+    if (!d)
+        return NULL;
+    size_t w = 0;
+    for (size_t i = 0; i < span; i++)
+        if (start[i] != '`')
+            d[w++] = start[i];
+    while (w > 0 && (d[w - 1] == '\n' || d[w - 1] == '\r' || d[w - 1] == ' ' ||
+                     d[w - 1] == '\t'))
+        w--;
+    d[w] = '\0';
+    return d;
+}
+
+/* Split Bob's output into `## line <N>` blocks and store each block's flowchart
+ * into the symbol whose starting line is N (that's the match). Returns how many
+ * symbols were filled. */
+static int store_diagrams(Module *mod, const char *out)
+{
+    int placed = 0;
+    const char *p = out;
+    while ((p = strstr(p, "## line ")) != NULL) {
+        long n = strtol(p + 8, NULL, 10);
+        const char *next = strstr(p + 8, "## line ");
+        const char *end = next ? next : out + strlen(out);
+        const char *fc = strstr(p + 8, "flowchart");
+        if (fc && fc < end) {
+            char *diagram = clean_flowchart(fc, end);
+            if (diagram && diagram[0]) {
+                for (int i = 0; i < mod->symbolCount; i++) {
+                    if ((long)mod->symbols[i].line == n) {
+                        free(mod->symbols[i].diagram);
+                        mod->symbols[i].diagram = diagram;
+                        diagram = NULL;
+                        placed++;
+                        break;
+                    }
+                }
+            }
+            free(diagram);
+        }
+        if (!next)
+            break;
+        p = next;
+    }
+    return placed;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <file.c|.java|.plx>\n", argv[0]);
+    const char *path = NULL;
+    const char *cli = "bob";
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--bob") == 0 && i + 1 < argc)
+            cli = argv[++i];
+        else if (argv[i][0] != '-')
+            path = argv[i];
+    }
+    if (!path) {
+        fprintf(stderr, "usage: %s <file.c|.java|.plx> [--bob <bob-binary>]\n",
+                argv[0]);
         return 2;
     }
-    const char *path = argv[1];
 
     enum Language lang = language_from_name(path);
     if ((int)lang < 0) {
@@ -81,14 +225,33 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    fputs(PROMPT, stdout);
-    printf("\nFile to read: %s\n", path);
-    printf("\nFunctions to diagram (%d), each tagged by its start line:\n",
-           mod->symbolCount);
-    for (int i = 0; i < mod->symbolCount; i++) {
-        Symbol *s = &mod->symbols[i];
-        printf("  line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
+    char *prompt = build_prompt(path, mod);
+    if (!prompt) {
+        fprintf(stderr, "zdoc_ai: out of memory\n");
+        return 1;
     }
 
-    return (mod->symbolCount > 0) ? 0 : 1;
+    char *out = run_bob(cli, prompt);
+    free(prompt);
+    if (!out) {
+        fprintf(stderr,
+                "zdoc_ai: bob call failed (is '%s' on PATH and authenticated?)\n",
+                cli);
+        return 1;
+    }
+
+    int placed = store_diagrams(mod, out);
+    free(out);
+
+    /* Show that each diagram landed in its symbol's ->diagram field. */
+    for (int i = 0; i < mod->symbolCount; i++) {
+        Symbol *s = &mod->symbols[i];
+        printf("\n## line %u: %s\n", s->line, s->name ? s->name : "(unnamed)");
+        printf("%s\n", (s->diagram && s->diagram[0]) ? s->diagram
+                                                     : "(no diagram)");
+    }
+    fprintf(stderr, "zdoc_ai: stored %d of %d diagrams\n", placed,
+            mod->symbolCount);
+
+    return placed > 0 ? 0 : 1;
 }
