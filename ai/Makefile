@@ -23,8 +23,12 @@ PARSER_SRCS = $(P)/parser_interface.c \
 
 all: zdoc_ai
 
-zdoc_ai: zdoc_ai.c $(PARSER_SRCS)
-	$(CC) $(CFLAGS) -o $@ zdoc_ai.c $(PARSER_SRCS)
+# annotate.c is the online-mode step (run Bob, fill Symbol.diagram by start
+# line); it does not parse. zdoc_ai.c is the standalone front end that parses
+# one file to feed it. The daemon/CLI would link annotate.c and call
+# zdoc_ai_annotate on modules it already parsed (see the PR).
+zdoc_ai: zdoc_ai.c annotate.c annotate.h $(PARSER_SRCS)
+	$(CC) $(CFLAGS) -o $@ zdoc_ai.c annotate.c $(PARSER_SRCS)
 
 clean:
 	-$(RM) zdoc_ai
