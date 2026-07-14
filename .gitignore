@@ -16,6 +16,9 @@ zdoc-cli
 # Generated documentation output (spec default --out-dir is ./zdoc-out)
 zdoc-out/
 
+# Release artifacts collected by scripts/collect-artifacts.sh (make dist)
+dist/
+
 # Local, non-example configuration
 zdoc.yaml
 zdoc.json

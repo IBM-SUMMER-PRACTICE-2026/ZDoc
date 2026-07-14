@@ -1,0 +1,212 @@
+name: build & release
+
+# Release is tag-driven: a version tag (v<version>, e.g. v0.1.0) triggers a
+# release, whether it's pushed together with a commit to main or pushed on
+# its own against an already-merged commit - either way, check-tag looks for
+# a version tag on HEAD and no-ops if it doesn't find one (so a plain push to
+# main with no tag does nothing). When a release is due, the version is
+# pulled from the tag (not from the in-source ZD_VERSION define - the tag is
+# now the single source of truth) and written into zdoc/cli/options.h before
+# each platform builds, so every binary reports the tag it was built from.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_REPO: ${{ vars.RELEASE_REPO }}
+  GITOPS_BRANCH: ${{ vars.GITOPS_BRANCH || 'release' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Does the just-pushed commit carry a version tag? Everything else is
+  # skipped when it doesn't, so untagged pushes to main are a no-op.
+  # ---------------------------------------------------------------------------
+  check-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Look for a version tag on HEAD
+        id: check
+        run: |
+          tag=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          if [ -n "$tag" ]; then
+            echo "check-tag: HEAD is tagged $tag - releasing." >&2
+            echo "release=true" >>"$GITHUB_OUTPUT"
+            echo "tag=$tag" >>"$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >>"$GITHUB_OUTPUT"
+          else
+            echo "check-tag: no version tag on HEAD - nothing to do." >&2
+            echo "release=false" >>"$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Build the zdoc CLI for every native platform, each with that platform's
+  # own toolchain (gcc on Linux, Xcode clang on macOS, MSYS2 gcc/clang on
+  # Windows), after stamping the tag's version into options.h.
+  # ---------------------------------------------------------------------------
+  build:
+    needs: check-tag
+    if: needs.check-tag.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-13            # Intel
+            platform: macos-x64
+          - os: macos-14            # Apple Silicon
+            platform: macos-arm64
+          - os: windows-latest      # x64
+            platform: windows-x64
+            msystem: UCRT64
+            install: make gcc
+            cc: gcc
+          - os: windows-11-arm      # ARM64
+            platform: windows-arm64
+            msystem: CLANGARM64
+            install: make clang
+            cc: clang
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ contains(matrix.os, 'windows') && 'msys2 {0}' || 'bash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (Windows)
+        if: ${{ contains(matrix.os, 'windows') }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: ${{ matrix.install }}
+
+      - name: Stamp the release version into options.h
+        run: |
+          sed -i.bak 's/#define ZD_VERSION ".*"/#define ZD_VERSION "${{ needs.check-tag.outputs.version }}"/' \
+            zdoc/cli/options.h
+          rm -f zdoc/cli/options.h.bak
+          grep ZD_VERSION zdoc/cli/options.h
+
+      - name: Build
+        run: make -C zdoc/cli ${{ matrix.cc && format('CC={0}', matrix.cc) || '' }}
+
+      - name: Collect the platform binary
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: sh scripts/collect-artifacts.sh
+
+      - name: Upload ${{ matrix.platform }} binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/${{ matrix.platform }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Assemble every platform's binary under dist/<version>/ (one file per OS,
+  # distinctly named) and publish that folder to the GitOps repo, alongside
+  # whatever earlier versions are already there.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [check-tag, build]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_TAG: ${{ needs.check-tag.outputs.tag }}
+      VERSION: ${{ needs.check-tag.outputs.version }}
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts   # each artifact -> artifacts/<platform>/bin/zdoc[.exe]
+
+      - name: Assemble dist/<version>/
+        run: |
+          mkdir -p "dist/$VERSION"
+          for platform_dir in artifacts/*/; do
+            platform=$(basename "$platform_dir")
+            bin=$(find "$platform_dir/bin" -maxdepth 1 -type f | head -n1)
+            if [ -z "$bin" ]; then
+              echo "publish: no binary found for $platform" >&2
+              exit 1
+            fi
+            case "$bin" in
+              *.exe) cp "$bin" "dist/$VERSION/zdoc-$platform.exe" ;;
+              *)     cp "$bin" "dist/$VERSION/zdoc-$platform" ;;
+            esac
+          done
+          ls -la "dist/$VERSION"
+
+      # Ensure the GitOps repo exists, creating it (under its owner) if this
+      # is the very first release.
+      - name: Ensure the GitOps repo exists
+        run: |
+          : "${RELEASE_REPO:?set the RELEASE_REPO repository variable to owner/name}"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$RELEASE_REPO")
+          if [ "$code" = "200" ]; then
+            echo "GitOps repo $RELEASE_REPO already exists."
+            exit 0
+          fi
+          if [ "$code" != "404" ]; then
+            echo "unexpected status $code querying $RELEASE_REPO" >&2
+            exit 1
+          fi
+          owner=${RELEASE_REPO%%/*}
+          name=${RELEASE_REPO#*/}
+          echo "GitOps repo $RELEASE_REPO missing - creating it."
+          # Try the org endpoint first; fall back to the token owner's repos.
+          curl -sS -f -X POST \
+              -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/orgs/$owner/repos" \
+              -d "{\"name\":\"$name\",\"private\":true,\"auto_init\":false}" >/dev/null 2>&1 \
+          || curl -sS -f -X POST \
+              -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/user/repos" \
+              -d "{\"name\":\"$name\",\"private\":true,\"auto_init\":false}" >/dev/null
+
+      # Clone whatever is already on the GitOps branch (so earlier versions'
+      # folders survive), layer this release's dist/<version>/ on top, and
+      # push - a plain (non-force) push, since we're adding to the branch,
+      # not replacing it.
+      - name: Publish dist/<version>/ to the GitOps repo
+        run: |
+          remote="https://x-access-token:${RELEASE_TOKEN}@github.com/$RELEASE_REPO.git"
+          work=$(mktemp -d)
+
+          if git clone -q --branch "$GITOPS_BRANCH" --single-branch "$remote" "$work" 2>/dev/null; then
+            echo "cloned existing $GITOPS_BRANCH branch."
+          else
+            echo "$GITOPS_BRANCH branch not found - starting it fresh."
+            git -C "$work" init -q
+            git -C "$work" checkout -q -b "$GITOPS_BRANCH"
+            git -C "$work" remote add origin "$remote"
+          fi
+
+          cp -R dist/. "$work/"
+          git -C "$work" add -A
+          git -C "$work" -c user.name="zdoc-ci" -c user.email="ci@zdoc.local" \
+              commit -q -m "Release $RELEASE_TAG" --allow-empty
+          git -C "$work" push origin "$GITOPS_BRANCH"
+
+          echo "published $RELEASE_TAG to $RELEASE_REPO ($GITOPS_BRANCH)."
