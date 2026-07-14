@@ -1,18 +1,18 @@
 #!/bin/sh
 # collect-artifacts.sh — gather the build outputs a release should ship.
 #
-# Deliberately generic: it packages whatever the current tree actually
-# produces, so it keeps working as components land and does not assume any
-# particular feature is present. Today that means the built executables and,
-# once the pipeline emits them, generated docs under zdoc-out/.
+# The release ships a single binary: the zdoc CLI (built as a self-contained
+# executable that runs the whole pipeline). The per-component zdoc-<module>
+# build outputs are development/test tools and are deliberately NOT shipped.
 #
-# For multi-platform releases, set PLATFORM (e.g. linux/macos/windows) and the
-# output is nested under dist/<platform>/ so per-OS binaries never collide when
-# every platform's artifacts are combined. Unset PLATFORM keeps a flat dist/
-# for local `make dist`.
+# For multi-platform releases, set PLATFORM (e.g. linux-x64/macos-arm64/...) and
+# the output is nested under dist/<platform>/ so per-OS binaries never collide
+# when every platform's artifacts are combined. Unset PLATFORM keeps a flat
+# dist/ for local `make dist`.
 #
 # Usage: collect-artifacts.sh [dist-dir]   (default: ./dist)
 #   env: PLATFORM  optional platform label
+#        CLI_DIR   dir holding the shipped binary (default: zdoc/cli)
 set -eu
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -28,15 +28,18 @@ fi
 rm -rf "$DEST"
 mkdir -p "$DEST/bin"
 
-# Executables: the zdoc CLI and every per-component `zdoc-<module>` binary,
-# with or without a Windows .exe suffix. Match by name + executable bit rather
-# than a hardcoded list; skip VCS, build scratch, macOS .dSYM debug bundles and
-# our own output dir.
-find "$REPO_ROOT" -type f -perm -u+x \
-    \( -name 'zdoc' -o -name 'zdoc.exe' -o -name 'zdoc-*' \) \
-    ! -path '*/.git/*' ! -path '*.dSYM/*' ! -path "$DIST/*" \
-    ! -name '*.o' ! -name '*.obj' \
+# Take only the CLI binary, by path, so it is never confused with the
+# same-named daemon binary in zdoc/ (both are called `zdoc`). Matches with or
+# without a Windows .exe suffix.
+CLI_DIR=${CLI_DIR:-zdoc/cli}
+find "$REPO_ROOT/$CLI_DIR" -maxdepth 1 -type f -perm -u+x \
+    \( -name 'zdoc' -o -name 'zdoc.exe' \) \
     -exec cp -p {} "$DEST/bin/" \;
+
+if [ -z "$(ls -A "$DEST/bin" 2>/dev/null)" ]; then
+    echo "collect-artifacts: no CLI binary found in $CLI_DIR — did 'make all' run?" >&2
+    exit 1
+fi
 
 # Ensure Windows binaries carry a .exe suffix. Native MSYS2 builds already do;
 # this is a harmless no-op there and a safety net for any that don't.
