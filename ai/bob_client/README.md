@@ -50,9 +50,10 @@ with quotes or newlines needs no escaping and cannot inject a command):
 bob -o text --chat-mode ask -y "<short instruction>\n\n<DOC/DECLARATIONS/CALLEES/FUNCTION snippet>"
 ```
 
-- The **output contract lives in the [`zdoc-diagram` Bob extension](../../.bob/extensions/zdoc-diagram/)**
-  (`bob-extension.json` + `context.md` + `examples/`), which must be linked into
-  Bob so its context shapes the answer: `bob extensions link .bob/extensions/zdoc-diagram`.
+- The **output contract is carried in the prompt itself** (see `build_prompt`
+  in `bob_client.c`): the full `flowchart TD` rules, node shapes, label
+  sanitization, and granularity ship in every request, so online mode is
+  correct with **no Bob extension linked** — nothing to install or configure.
   The model returns one Mermaid `flowchart` block per symbol.
 - `-o text` prints the final answer; `--chat-mode ask -y` keeps it read-only and
   non-interactive.

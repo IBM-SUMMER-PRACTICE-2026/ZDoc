@@ -2,7 +2,8 @@
  * (zdoc_ai_annotate) against the *real* Bob CLI, across languages.
  *
  * Not part of any CI target. Requires bob on PATH with a valid session/API key
- * and the zdoc-diagram extension linked. Build & run:
+ * (the diagram contract ships in the prompt — no Bob extension needed). Build
+ * & run:
  *
  *     make -C ai live                 # built-in PL/X + C + Java fixtures
  *     ./ai_mode_live path/to/file.c   # diagram one real file (whole-file)

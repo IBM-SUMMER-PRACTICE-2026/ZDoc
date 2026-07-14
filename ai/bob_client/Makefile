@@ -34,7 +34,7 @@ tests/test_closure: tests/test_closure.c closure.c util.c closure.h util.h
 	$(CC) $(CFLAGS) -I. -o $@ tests/test_closure.c closure.c util.c
 
 # Manual end-to-end check against the real Bob CLI (needs bob on PATH + a
-# session/API key + the zdoc-diagram skill discoverable). Not run by `test`.
+# valid session/API key; the contract ships in the prompt). Not run by `test`.
 live: tests/live_bob
 	./tests/live_bob
 
