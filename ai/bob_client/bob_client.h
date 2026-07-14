@@ -2,8 +2,8 @@
  * ZDoc bob_client — AI Assisted mode closure.
  *
  * Turns a single function snippet into an embeddable Mermaid block diagram by
- * invoking the Bob CLI. Bob's behaviour is defined by the zdoc-diagram skill
- * (see .bob/extensions/zdoc-diagram/); this layer only drives the invocation and
+ * invoking the Bob CLI. The full diagram contract is carried in the prompt
+ * (see build_prompt in bob_client.c); this layer only drives the invocation and
  * guards the output boundary so the raw model text is safe to embed.
  *
  * Part of the ZDoc ai/ layer. Invoked only in AI Assisted mode

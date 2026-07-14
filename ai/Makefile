@@ -28,7 +28,8 @@ ai_mode.o: ai_mode.c ai_mode.h $(BC)/bob_client.h $(BC)/closure.h $(BC)/util.h
 	$(CC) $(CFLAGS) -c -o $@ ai_mode.c
 
 # Real-bob end-to-end check of the whole AI-mode interface (needs bob on PATH +
-# a session/API key + the zdoc-diagram extension linked). Not run by CI.
+# a valid session/API key; the diagram contract ships in the prompt, so no Bob
+# extension is required). Not run by CI.
 live: ai_mode_live
 	./ai_mode_live
 
