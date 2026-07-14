@@ -19,4 +19,7 @@ enum ZDoc_Error append_diagram_to_symbol(const char * diagram, size_t diagram_le
 // Staple each diagram to its symbol (calls append_diagram for each symbol)
 enum ZDoc_Error append_diagrams(const char * response, size_t response_len, Module * module);
 
+// Builds the entire prompt for Bob (instructions, path + function names + line numbers)
+char * build_bob_prompt(const char * path, Module * module);
+
 #endif
