@@ -392,6 +392,7 @@ static void test_md_write_failure(const char *out_dir) {
     DxDir dirs[] = { {.name = "src", .parent_index = -1} };
     DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
 
+    fprintf(stderr, "(the renderer error below is intentional - testing failure handling)\n");
     CHECK(md_render(&m, bad_path, "Should Fail") == -1);
 }
 
@@ -415,6 +416,7 @@ static void test_md_failed_render_cleans_up(const char *out_dir) {
     };
     DxModel m = {.dirs = dirs, .dir_count = 2, .files = files, .file_count = 2};
 
+    fprintf(stderr, "(the renderer error below is intentional - testing failure handling)\n");
     CHECK(md_render(&m, path, "Cleanup") == -1);
 
     /* the module file that WAS written successfully must be gone again */

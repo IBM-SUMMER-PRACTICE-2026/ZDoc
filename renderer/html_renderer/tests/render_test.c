@@ -532,6 +532,7 @@ static void test_write_failure(const char *out_dir) {
     DxDir dirs[] = { {.name = "src", .parent_index = -1} };
     DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
 
+    fprintf(stderr, "(the renderer error below is intentional - testing failure handling)\n");
     CHECK(html_render(&m, bad_path, "Should Fail") == -1);
 }
 
@@ -551,6 +552,7 @@ static void test_failed_render_leaves_no_output(const char *out_dir) {
     snprintf(blocker_dir, sizeof blocker_dir, "%s/index.html", path);
     CHECK(html_render(&m, blocker_dir, "Blocker") == 0);
 
+    fprintf(stderr, "(the renderer error below is intentional - testing failure handling)\n");
     CHECK(html_render(&m, path, "Should Fail") == -1);
 
     char tmp_file[700];
