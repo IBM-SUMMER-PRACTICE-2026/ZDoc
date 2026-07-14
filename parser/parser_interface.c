@@ -8,7 +8,7 @@ enum ZDoc_Error language_from_name(const char* name, enum Language* lang) {
         return ZDOC_UNSUPPORTED_LANGUAGE;
     }
     if (strcmp(ext, ".c") == 0)    {*lang =  C;   return ZDOC_OK;}
-    if (strcmp(ext, ".c++") == 0)  {*lang = CPLUSPLUS;  return ZDOC_OK;}
+    if (strcmp(ext, ".cpp") == 0)  {*lang = CPLUSPLUS;  return ZDOC_OK;}
     if (strcmp(ext, ".java") == 0) {*lang = JAVA; return ZDOC_OK;}
     if (strcmp(ext, ".plx") == 0)  {*lang = PLX;  return ZDOC_OK;}
     if (strcmp(ext, ".plxmac") == 0)  {*lang = PLXMAC;  return ZDOC_OK;}
