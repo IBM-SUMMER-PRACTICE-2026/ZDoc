@@ -113,7 +113,6 @@ enum ZDoc_Error bob_client(const char * path, Module * module, char * bob_cli) {
     if(rc != ZDOC_OK) {
         return rc;
     }
-
     
     return ZDOC_OK;
 }
