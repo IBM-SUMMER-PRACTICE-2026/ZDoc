@@ -26,7 +26,9 @@ else
     fixpath = $1
 endif
 
-OBJS    = c_parser.o main.o
+OBJS      = c_parser.o main.o
+TEST_BIN  = c_parser_test$(EXE)
+TEST_OBJS = tests/c_parser_test.o
 
 SHARED_H = ../shared/parser_shared.h ../../extractor/doc_extractor/module_tree/modtree_tables.h
 
@@ -38,10 +40,19 @@ $(BIN): $(OBJS)
 c_parser.o: c_parser.c c_parser.h $(SHARED_H)
 main.o: main.c c_parser.h $(SHARED_H)
 
-test: $(BIN)
-	$(RUN) tests/sample.c tests/sample.cpp
+tests/c_parser_test.o: tests/c_parser_test.c c_parser.h $(SHARED_H)
+
+$(TEST_BIN): c_parser.o $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ c_parser.o $(TEST_OBJS)
+
+test: $(TEST_BIN)
+ifdef WINDOWS_CMD
+	$(TEST_BIN)
+else
+	./$(TEST_BIN)
+endif
 
 clean:
-	-$(RM) $(call fixpath,$(BIN) $(OBJS))
+	-$(RM) $(call fixpath,$(BIN) $(OBJS) $(TEST_BIN) $(TEST_OBJS))
 
 .PHONY: all test clean

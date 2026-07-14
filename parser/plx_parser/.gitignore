@@ -1,2 +1,4 @@
 *.exe
 *.o
+plx_parser
+plx_parser_test
