@@ -73,17 +73,40 @@ static char **split_args(const char *args, char **storage, size_t *n)
     return tok;
 }
 
-/* Build the one-shot prompt fed to Bob: a short instruction plus the snippet
- * the closure assembled. The zdoc-diagram extension carries the full output
- * contract, so this stays brief. Returns a malloc'd string; caller frees. */
+/* Build the one-shot prompt fed to Bob: the full ZDoc diagram contract plus the
+ * snippet the closure assembled. The contract is carried IN THE PROMPT (not
+ * only in the zdoc-diagram extension) so online mode is correct on any machine
+ * with no extension linked — the extension then only adds optional per-language
+ * examples. Returns a malloc'd string; caller frees. */
 static char *build_prompt(const char *language, const char *snippet)
 {
     static const char *pre =
-        "Output a single Mermaid block diagram (flowchart TD) for the following ";
-    static const char *mid =
-        " function, following the ZDoc diagram contract already in your context. "
-        "Do not use any tools, do not read files, do not add prose or "
-        "explanation — respond with only the Mermaid block.\n\n";
+        "Generate a ZDoc block diagram. Output EXACTLY ONE Mermaid "
+        "`flowchart TD` block and nothing else: no prose, and do not use "
+        "tools, read files, or search.\n\n"
+        "Rules:\n"
+        "- First line is `flowchart TD`; then one node per line, 4-space "
+        "indented.\n"
+        "- Node ids A, B, C... in flow order; the first node is the entry and "
+        "every node is reachable from it.\n"
+        "- Shapes: [text] = step or return, {text} = decision phrased as a "
+        "question, (text) = a call to a name listed under CALLEES.\n"
+        "- Label every decision out-edge (e.g. `B -- Yes --> C`); leave plain "
+        "sequential edges unlabeled.\n"
+        "- 1-14 nodes, one per LOGICAL step: merge straight-line sequences, "
+        "and render a loop as one body node plus a back-edge (never "
+        "unrolled). Keep label text under ~6 words.\n"
+        "- Allowed characters inside a label: letters, digits, spaces and "
+        ": = ? - only. Never put quotes, brackets, braces, parentheses, "
+        "pipes, <>, &, #, ;, / or backticks inside label text; reword "
+        "instead.\n"
+        "- If the body is empty or pure data, output `flowchart TD` then a "
+        "single node `    A[No executable logic]`.\n\n"
+        "The request below has DOC / DECLARATIONS / CALLEES / FUNCTION "
+        "sections; diagram ONLY the FUNCTION body, using the others just for "
+        "naming.\n\n"
+        "Language: ";
+    static const char *mid = "\n\n";
     const char *lang = (language && *language) ? language : "";
     size_t lp = strlen(pre), ll = strlen(lang), lm = strlen(mid),
            ls = strlen(snippet);
