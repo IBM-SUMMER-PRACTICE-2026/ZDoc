@@ -1,12 +1,17 @@
 /* Unit tests for the zdoc CLI front-end, in the same shape as the renderer
    tests: build small fixtures, call the unit directly, assert on the result.
-   Covers options.c (defaults + language table), cli.c (zd_cli_parse),
-   config.c (zdoc.yaml / zdoc.json loading) and request.c (validate + the
-   generate-request JSON).
+   Covers options.c (defaults), cli.c (zd_cli_parse), config.c (zdoc.yaml /
+   zdoc.json loading) and request.c (validate + the generate-request JSON).
+
+   Checks are failure-tolerant: a failed CHECK reports file:line and lets
+   every remaining test run, and main exits nonzero if anything failed.
+   Plain assert() is kept only for harness plumbing (scratch files, chdir)
+   whose failure means the test setup itself is broken.
 
    The error-path tests intentionally trigger zdoc's stderr diagnostics, so
    those lines are expected in the output. The --help/--version/about text
    is captured into the scratch dir instead of drowning the test output. */
+
 /* -std=c11 is strict ANSI: glibc hides fileno/dup behind this macro, and
    MinGW hides _fileno entirely (declared by hand below). */
 #ifndef _WIN32
@@ -46,6 +51,32 @@ int _fileno(FILE *stream);
 #define zd_close close
 #define zd_fileno fileno
 #endif
+
+static int g_run_failed;  /* failed checks across the whole run */
+static int g_test_failed; /* failed checks in the test currently running */
+
+/* Record a failed expectation without aborting, so the remaining tests
+   still run. Where a later check would read memory that is only valid if
+   an earlier one held (list counts vs. list contents), the conditions are
+   combined into one CHECK with && so the short-circuit keeps it safe. */
+#define CHECK(cond) do { \
+    if(!(cond)) { \
+        printf("  FAILED %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        g_test_failed++; \
+    } \
+} while(0)
+
+//Per-test verdict, folding this test's failures into the run total
+static void test_result(const char *name) {
+    if(g_test_failed) {
+        printf("%s FAILED (%d check%s)\n", name, g_test_failed,
+               g_test_failed == 1 ? "" : "s");
+        g_run_failed += g_test_failed;
+        g_test_failed = 0;
+    } else {
+        printf("%s passed\n", name);
+    }
+}
 
 /* Where the test binary started; config tests chdir away and back. */
 static char g_start_dir[1024];
@@ -108,44 +139,31 @@ static void test_options_init_defaults(void) {
     zd_options o;
     zd_options_init(&o);
 
-    assert(o.mode == ZD_MODE_OFFLINE);
-    assert(o.format == ZD_FORMAT_MD);
-    assert(strcmp(o.out_dir, "./zdoc-out") == 0);
-    assert(strcmp(o.bob_cli, "bob") == 0);
-    assert(o.title[0] == '\0');
-    assert(o.bob_args[0] == '\0');
-    assert(o.n_languages == 0);
-    assert(o.n_excludes == 0);
-    assert(o.n_inputs == 0);
-    assert(o.recursive == 0);
-    assert(o.no_source == 0);
+    CHECK(o.mode == ZD_MODE_OFFLINE);
+    CHECK(o.format == ZD_FORMAT_MD);
+    CHECK(strcmp(o.out_dir, "./zdoc-out") == 0);
+    CHECK(strcmp(o.bob_cli, "bob") == 0);
+    CHECK(o.title[0] == '\0');
+    CHECK(o.bob_args[0] == '\0');
+    CHECK(o.languages != NULL); //list slots are heap-allocated up front
+    CHECK(o.excludes != NULL);
+    CHECK(o.n_languages == 0);
+    CHECK(o.n_excludes == 0);
+    CHECK(o.n_inputs == 0);
+    CHECK(o.recursive == 0);
+    CHECK(o.no_source == 0);
 
-    printf("test_options_init_defaults passed\n");
-}
-
-/*The language table maps canonical names and aliases ("c++", "assembler")
-to their canonical form case-insensitively; unknown names give NULL.*/
-static void test_lang_canonical(void) {
-    assert(strcmp(zd_lang_canonical("plx"), "plx") == 0);
-    assert(strcmp(zd_lang_canonical("c"), "c") == 0);
-    assert(strcmp(zd_lang_canonical("c++"), "cpp") == 0);
-    assert(strcmp(zd_lang_canonical("assembler"), "asm") == 0);
-    assert(strcmp(zd_lang_canonical("JAVA"), "java") == 0);
-    assert(strcmp(zd_lang_canonical("Pascal"), "pascal") == 0);
-    assert(zd_lang_canonical("cobol") == NULL);
-    assert(zd_lang_canonical("") == NULL);
-
-    printf("test_lang_canonical passed\n");
+    test_result("test_options_init_defaults");
 }
 
 //Enum-to-name mapping used when the request JSON is written
 static void test_mode_format_names(void) {
-    assert(strcmp(zd_mode_name(ZD_MODE_OFFLINE), "offline") == 0);
-    assert(strcmp(zd_mode_name(ZD_MODE_AI), "ai") == 0);
-    assert(strcmp(zd_format_name(ZD_FORMAT_MD), "md") == 0);
-    assert(strcmp(zd_format_name(ZD_FORMAT_HTML), "html") == 0);
+    CHECK(strcmp(zd_mode_name(ZD_MODE_OFFLINE), "offline") == 0);
+    CHECK(strcmp(zd_mode_name(ZD_MODE_AI), "ai") == 0);
+    CHECK(strcmp(zd_format_name(ZD_FORMAT_MD), "md") == 0);
+    CHECK(strcmp(zd_format_name(ZD_FORMAT_HTML), "html") == 0);
 
-    printf("test_mode_format_names passed\n");
+    test_result("test_mode_format_names");
 }
 
 /* ---- cli.c ---- */
@@ -160,30 +178,30 @@ static void test_cli_exit_paths(const char *scratch) {
 
     char *bare[] = { "zdoc" };
     zd_options_init(&o);
-    assert(parse_capturing(1, bare, &o, path) == ZD_CLI_EXIT);
+    CHECK(parse_capturing(1, bare, &o, path) == ZD_CLI_EXIT);
     out = read_file(path);
-    assert(strstr(out, "usage:") != NULL);
+    CHECK(strstr(out, "usage:") != NULL);
     free(out);
 
     char *help[] = { "zdoc", "--help" };
     zd_options_init(&o);
-    assert(parse_capturing(2, help, &o, path) == ZD_CLI_EXIT);
+    CHECK(parse_capturing(2, help, &o, path) == ZD_CLI_EXIT);
     out = read_file(path);
-    assert(strstr(out, "--output-format md|html") != NULL);
+    CHECK(strstr(out, "--output-format md|html") != NULL);
     free(out);
 
     char *h[] = { "zdoc", "-h" };
     zd_options_init(&o);
-    assert(parse_capturing(2, h, &o, path) == ZD_CLI_EXIT);
+    CHECK(parse_capturing(2, h, &o, path) == ZD_CLI_EXIT);
 
     char *version[] = { "zdoc", "--version" };
     zd_options_init(&o);
-    assert(parse_capturing(2, version, &o, path) == ZD_CLI_EXIT);
+    CHECK(parse_capturing(2, version, &o, path) == ZD_CLI_EXIT);
     out = read_file(path);
-    assert(strcmp(out, "zdoc " ZD_VERSION "\n") == 0);
+    CHECK(strcmp(out, "zdoc " ZD_VERSION "\n") == 0);
     free(out);
 
-    printf("test_cli_exit_paths passed\n");
+    test_result("test_cli_exit_paths");
 }
 
 //A lone source path parses OK and leaves every default untouched
@@ -192,14 +210,14 @@ static void test_cli_input_only(void) {
     zd_options o;
     zd_options_init(&o);
 
-    assert(zd_cli_parse(2, argv, &o) == ZD_CLI_OK);
-    assert(o.n_inputs == 1);
-    assert(strcmp(o.inputs[0], "./src") == 0);
-    assert(o.mode == ZD_MODE_OFFLINE);
-    assert(o.format == ZD_FORMAT_MD);
-    assert(strcmp(o.out_dir, "./zdoc-out") == 0);
+    CHECK(zd_cli_parse(2, argv, &o) == ZD_CLI_OK);
+    CHECK(o.n_inputs == 1);
+    CHECK(strcmp(o.inputs[0], "./src") == 0);
+    CHECK(o.mode == ZD_MODE_OFFLINE);
+    CHECK(o.format == ZD_FORMAT_MD);
+    CHECK(strcmp(o.out_dir, "./zdoc-out") == 0);
 
-    printf("test_cli_input_only passed\n");
+    test_result("test_cli_input_only");
 }
 
 /*Every value option in both "--opt value" and "--opt=value" spelling,
@@ -221,40 +239,41 @@ static void test_cli_all_options(void) {
     zd_options o;
     zd_options_init(&o);
 
-    assert(zd_cli_parse(14, argv, &o) == ZD_CLI_OK);
-    assert(o.mode == ZD_MODE_AI);
-    assert(o.format == ZD_FORMAT_HTML);
-    assert(strcmp(o.out_dir, "./docs") == 0);
-    assert(strcmp(o.title, "My Project") == 0);
-    assert(strcmp(o.bob_cli, "/usr/local/bin/bob") == 0);
-    assert(strcmp(o.bob_args, "--fast --verbose") == 0);
-    assert(o.recursive == 1);
-    assert(o.no_source == 1);
-    assert(o.n_inputs == 2);
-    assert(strcmp(o.inputs[0], "-") == 0);
-    assert(strcmp(o.inputs[1], "./src") == 0);
+    CHECK(zd_cli_parse(14, argv, &o) == ZD_CLI_OK);
+    CHECK(o.mode == ZD_MODE_AI);
+    CHECK(o.format == ZD_FORMAT_HTML);
+    CHECK(strcmp(o.out_dir, "./docs") == 0);
+    CHECK(strcmp(o.title, "My Project") == 0);
+    CHECK(strcmp(o.bob_cli, "/usr/local/bin/bob") == 0);
+    CHECK(strcmp(o.bob_args, "--fast --verbose") == 0);
+    CHECK(o.recursive == 1);
+    CHECK(o.no_source == 1);
+    CHECK(o.n_inputs == 2);
+    CHECK(strcmp(o.inputs[0], "-") == 0);
+    CHECK(strcmp(o.inputs[1], "./src") == 0);
 
-    printf("test_cli_all_options passed\n");
+    test_result("test_cli_all_options");
 }
 
-/*--lang splits its comma list, canonicalizes aliases, and the first --lang
-replaces whatever a config file put in the list instead of appending.*/
+/*--lang splits its comma list into extension tokens stored verbatim, and
+the first --lang replaces whatever a config file put in the list instead
+of appending.*/
 static void test_cli_lang_list(void) {
-    char *argv[] = { "zdoc", "--lang", "c++,JAVA, plx", "./src" };
+    char *argv[] = { "zdoc", "--lang", ".c,.cpp, .java", "./src" };
     zd_options o;
     zd_options_init(&o);
 
     //pretend zdoc.yaml already picked a language
-    snprintf(o.languages[0], ZD_LANG_MAX, "pascal");
+    snprintf(o.languages[0], ZD_LANG_MAX, ".plx");
     o.n_languages = 1;
 
-    assert(zd_cli_parse(4, argv, &o) == ZD_CLI_OK);
-    assert(o.n_languages == 3);
-    assert(strcmp(o.languages[0], "cpp") == 0);
-    assert(strcmp(o.languages[1], "java") == 0);
-    assert(strcmp(o.languages[2], "plx") == 0);
+    CHECK(zd_cli_parse(4, argv, &o) == ZD_CLI_OK);
+    CHECK(o.n_languages == 3
+          && strcmp(o.languages[0], ".c") == 0
+          && strcmp(o.languages[1], ".cpp") == 0
+          && strcmp(o.languages[2], ".java") == 0);
 
-    printf("test_cli_lang_list passed\n");
+    test_result("test_cli_lang_list");
 }
 
 //--exclude repeats to collect globs, and like --lang replaces config lists
@@ -266,44 +285,40 @@ static void test_cli_exclude_repeatable(void) {
     snprintf(o.excludes[0], ZD_GLOB_MAX, "from-config/*");
     o.n_excludes = 1;
 
-    assert(zd_cli_parse(5, argv, &o) == ZD_CLI_OK);
-    assert(o.n_excludes == 2);
-    assert(strcmp(o.excludes[0], "*.bak") == 0);
-    assert(strcmp(o.excludes[1], "build/*") == 0);
+    CHECK(zd_cli_parse(5, argv, &o) == ZD_CLI_OK);
+    CHECK(o.n_excludes == 2
+          && strcmp(o.excludes[0], "*.bak") == 0
+          && strcmp(o.excludes[1], "build/*") == 0);
 
-    printf("test_cli_exclude_repeatable passed\n");
+    test_result("test_cli_exclude_repeatable");
 }
 
-/*Bad enum values, unknown languages, unknown options, a value option left
-without a value and a command line with no source path all fail the parse.*/
+/*Bad enum values, unknown options, a value option left without a value
+and a command line with no source path all fail the parse.*/
 static void test_cli_errors(void) {
     zd_options o;
 
     char *bad_mode[] = { "zdoc", "--mode", "turbo", "./src" };
     zd_options_init(&o);
-    assert(zd_cli_parse(4, bad_mode, &o) == ZD_CLI_ERROR);
+    CHECK(zd_cli_parse(4, bad_mode, &o) == ZD_CLI_ERROR);
 
     char *bad_format[] = { "zdoc", "--output-format=pdf", "./src" };
     zd_options_init(&o);
-    assert(zd_cli_parse(3, bad_format, &o) == ZD_CLI_ERROR);
-
-    char *bad_lang[] = { "zdoc", "--lang", "cobol", "./src" };
-    zd_options_init(&o);
-    assert(zd_cli_parse(4, bad_lang, &o) == ZD_CLI_ERROR);
+    CHECK(zd_cli_parse(3, bad_format, &o) == ZD_CLI_ERROR);
 
     char *unknown[] = { "zdoc", "--frobnicate", "./src" };
     zd_options_init(&o);
-    assert(zd_cli_parse(3, unknown, &o) == ZD_CLI_ERROR);
+    CHECK(zd_cli_parse(3, unknown, &o) == ZD_CLI_ERROR);
 
     char *no_value[] = { "zdoc", "./src", "--title" };
     zd_options_init(&o);
-    assert(zd_cli_parse(3, no_value, &o) == ZD_CLI_ERROR);
+    CHECK(zd_cli_parse(3, no_value, &o) == ZD_CLI_ERROR);
 
     char *no_input[] = { "zdoc", "--recursive" };
     zd_options_init(&o);
-    assert(zd_cli_parse(2, no_input, &o) == ZD_CLI_ERROR);
+    CHECK(zd_cli_parse(2, no_input, &o) == ZD_CLI_ERROR);
 
-    printf("test_cli_errors passed\n");
+    test_result("test_cli_errors");
 }
 
 /* ---- config.c ---- */
@@ -314,18 +329,26 @@ static void test_config_missing_is_noop(const char *scratch) {
     snprintf(dir, sizeof dir, "%s/cfg_none", scratch);
     zd_mkdir(dir);
 
-    zd_options o, defaults;
+    zd_options o;
     zd_options_init(&o);
-    zd_options_init(&defaults);
-
     load_config_in(dir, &o);
-    assert(memcmp(&o, &defaults, sizeof o) == 0);
 
-    printf("test_config_missing_is_noop passed\n");
+    //still exactly the zd_options_init defaults
+    CHECK(o.mode == ZD_MODE_OFFLINE);
+    CHECK(o.format == ZD_FORMAT_MD);
+    CHECK(strcmp(o.out_dir, "./zdoc-out") == 0);
+    CHECK(strcmp(o.bob_cli, "bob") == 0);
+    CHECK(o.title[0] == '\0');
+    CHECK(o.n_languages == 0);
+    CHECK(o.n_excludes == 0);
+    CHECK(o.recursive == 0);
+    CHECK(o.no_source == 0);
+
+    test_result("test_config_missing_is_noop");
 }
 
 /*zdoc.yaml scalars and lists: comments are stripped, quotes removed,
-booleans accept yes/true, language aliases canonicalize, and the list
+booleans accept yes/true, list items are stored verbatim, and the list
 keys replace the defaults. An unknown key only warns.*/
 static void test_config_yaml(const char *scratch) {
     char dir[512], path[600];
@@ -344,8 +367,8 @@ static void test_config_yaml(const char *scratch) {
         "bob_cli: /opt/bob\n"
         "bob_args: '--fast'\n"
         "languages:\n"
-        "  - c++\n"
-        "  - Java\n"
+        "  - .cpp\n"
+        "  - .java\n"
         "exclude:\n"
         "  - \"*.bak\"\n"
         "  - build/*\n"
@@ -355,26 +378,26 @@ static void test_config_yaml(const char *scratch) {
     zd_options_init(&o);
     load_config_in(dir, &o);
 
-    assert(strcmp(o.title, "My Project") == 0);
-    assert(strcmp(o.out_dir, "./docs") == 0);
-    assert(o.mode == ZD_MODE_AI);
-    assert(o.format == ZD_FORMAT_HTML);
-    assert(o.recursive == 1);
-    assert(o.no_source == 1);
-    assert(strcmp(o.bob_cli, "/opt/bob") == 0);
-    assert(strcmp(o.bob_args, "--fast") == 0);
-    assert(o.n_languages == 2);
-    assert(strcmp(o.languages[0], "cpp") == 0);
-    assert(strcmp(o.languages[1], "java") == 0);
-    assert(o.n_excludes == 2);
-    assert(strcmp(o.excludes[0], "*.bak") == 0);
-    assert(strcmp(o.excludes[1], "build/*") == 0);
+    CHECK(strcmp(o.title, "My Project") == 0);
+    CHECK(strcmp(o.out_dir, "./docs") == 0);
+    CHECK(o.mode == ZD_MODE_AI);
+    CHECK(o.format == ZD_FORMAT_HTML);
+    CHECK(o.recursive == 1);
+    CHECK(o.no_source == 1);
+    CHECK(strcmp(o.bob_cli, "/opt/bob") == 0);
+    CHECK(strcmp(o.bob_args, "--fast") == 0);
+    CHECK(o.n_languages == 2
+          && strcmp(o.languages[0], ".cpp") == 0
+          && strcmp(o.languages[1], ".java") == 0);
+    CHECK(o.n_excludes == 2
+          && strcmp(o.excludes[0], "*.bak") == 0
+          && strcmp(o.excludes[1], "build/*") == 0);
 
-    printf("test_config_yaml passed\n");
+    test_result("test_config_yaml");
 }
 
 /*zdoc.json is the fallback: strings with \\ escapes, booleans and string
-lists all apply; language aliases canonicalize here too.*/
+lists all apply.*/
 static void test_config_json(const char *scratch) {
     char dir[512], path[600];
     snprintf(dir, sizeof dir, "%s/cfg_json", scratch);
@@ -386,7 +409,7 @@ static void test_config_json(const char *scratch) {
         "  \"title\": \"Json \\\"Title\\\"\",\n"
         "  \"out_dir\": \"C:\\\\docs\",\n"
         "  \"recursive\": true,\n"
-        "  \"languages\": [\"assembler\", \"plx\"],\n"
+        "  \"languages\": [\".asm\", \".plx\"],\n"
         "  \"exclude\": [\"*.o\"]\n"
         "}\n");
 
@@ -394,16 +417,15 @@ static void test_config_json(const char *scratch) {
     zd_options_init(&o);
     load_config_in(dir, &o);
 
-    assert(strcmp(o.title, "Json \"Title\"") == 0);
-    assert(strcmp(o.out_dir, "C:\\docs") == 0);
-    assert(o.recursive == 1);
-    assert(o.n_languages == 2);
-    assert(strcmp(o.languages[0], "asm") == 0);
-    assert(strcmp(o.languages[1], "plx") == 0);
-    assert(o.n_excludes == 1);
-    assert(strcmp(o.excludes[0], "*.o") == 0);
+    CHECK(strcmp(o.title, "Json \"Title\"") == 0);
+    CHECK(strcmp(o.out_dir, "C:\\docs") == 0);
+    CHECK(o.recursive == 1);
+    CHECK(o.n_languages == 2
+          && strcmp(o.languages[0], ".asm") == 0
+          && strcmp(o.languages[1], ".plx") == 0);
+    CHECK(o.n_excludes == 1 && strcmp(o.excludes[0], "*.o") == 0);
 
-    printf("test_config_json passed\n");
+    test_result("test_config_json");
 }
 
 //When both files exist zdoc.yaml wins and zdoc.json is never read
@@ -421,9 +443,9 @@ static void test_config_yaml_beats_json(const char *scratch) {
     zd_options_init(&o);
     load_config_in(dir, &o);
 
-    assert(strcmp(o.title, "From Yaml") == 0);
+    CHECK(strcmp(o.title, "From Yaml") == 0);
 
-    printf("test_config_yaml_beats_json passed\n");
+    test_result("test_config_yaml_beats_json");
 }
 
 /*The documented precedence chain: defaults -> zdoc.yaml -> command line.
@@ -438,21 +460,20 @@ static void test_precedence_cli_over_config(const char *scratch) {
         "title: Config Title\n"
         "out_dir: ./from-config\n"
         "languages:\n"
-        "  - c\n");
+        "  - .c\n");
 
     zd_options o;
     zd_options_init(&o);
     load_config_in(dir, &o);
 
-    char *argv[] = { "zdoc", "--title", "CLI Title", "--lang", "plx", "./src" };
-    assert(zd_cli_parse(6, argv, &o) == ZD_CLI_OK);
+    char *argv[] = { "zdoc", "--title", "CLI Title", "--lang", ".plx", "./src" };
+    CHECK(zd_cli_parse(6, argv, &o) == ZD_CLI_OK);
 
-    assert(strcmp(o.title, "CLI Title") == 0);
-    assert(strcmp(o.out_dir, "./from-config") == 0); //not overridden, file value stays
-    assert(o.n_languages == 1);
-    assert(strcmp(o.languages[0], "plx") == 0);
+    CHECK(strcmp(o.title, "CLI Title") == 0);
+    CHECK(strcmp(o.out_dir, "./from-config") == 0); //not overridden, file value stays
+    CHECK(o.n_languages == 1 && strcmp(o.languages[0], ".plx") == 0);
 
-    printf("test_precedence_cli_over_config passed\n");
+    test_result("test_precedence_cli_over_config");
 }
 
 /* ---- request.c ---- */
@@ -464,13 +485,13 @@ static void test_request_validate(void) {
 
     snprintf(o.inputs[0], ZD_PATH_MAX, ".");
     o.n_inputs = 1;
-    assert(zd_request_validate(&o) == 0);
+    CHECK(zd_request_validate(&o) == 0);
 
     snprintf(o.inputs[1], ZD_PATH_MAX, "definitely-missing-dir-xyz");
     o.n_inputs = 2;
-    assert(zd_request_validate(&o) == -1);
+    CHECK(zd_request_validate(&o) == -1);
 
-    printf("test_request_validate passed\n");
+    test_result("test_request_validate");
 }
 
 /*The generate-request JSON carries every resolved option; backslashes in
@@ -486,8 +507,8 @@ static void test_request_write(const char *scratch) {
     snprintf(o.out_dir, ZD_PATH_MAX, "C:\\docs\\out");
     snprintf(o.title, ZD_TITLE_MAX, "My \"Project\"");
     o.recursive = 1;
-    snprintf(o.languages[0], ZD_LANG_MAX, "c");
-    snprintf(o.languages[1], ZD_LANG_MAX, "java");
+    snprintf(o.languages[0], ZD_LANG_MAX, ".c");
+    snprintf(o.languages[1], ZD_LANG_MAX, ".java");
     o.n_languages = 2;
     snprintf(o.excludes[0], ZD_GLOB_MAX, "*.bak");
     o.n_excludes = 1;
@@ -501,21 +522,21 @@ static void test_request_write(const char *scratch) {
 
     char *json = read_file(path);
 
-    assert(strstr(json, "\"zdoc_request\": \"generate\"") != NULL);
-    assert(strstr(json, "\"client_version\": \"" ZD_VERSION "\"") != NULL);
-    assert(strstr(json, "\"mode\": \"ai\"") != NULL);
-    assert(strstr(json, "\"output_format\": \"html\"") != NULL);
-    assert(strstr(json, "\"out_dir\": \"C:\\\\docs\\\\out\"") != NULL);
-    assert(strstr(json, "\"title\": \"My \\\"Project\\\"\"") != NULL);
-    assert(strstr(json, "\"recursive\": true") != NULL);
-    assert(strstr(json, "\"no_source\": false") != NULL);
-    assert(strstr(json, "\"languages\": [\"c\", \"java\"]") != NULL);
-    assert(strstr(json, "\"exclude\": [\"*.bak\"]") != NULL);
-    assert(strstr(json, "\"bob_cli\": \"bob\"") != NULL);
-    assert(strstr(json, "\"sources\": [\"./src\"]") != NULL);
+    CHECK(strstr(json, "\"zdoc_request\": \"generate\"") != NULL);
+    CHECK(strstr(json, "\"client_version\": \"" ZD_VERSION "\"") != NULL);
+    CHECK(strstr(json, "\"mode\": \"ai\"") != NULL);
+    CHECK(strstr(json, "\"output_format\": \"html\"") != NULL);
+    CHECK(strstr(json, "\"out_dir\": \"C:\\\\docs\\\\out\"") != NULL);
+    CHECK(strstr(json, "\"title\": \"My \\\"Project\\\"\"") != NULL);
+    CHECK(strstr(json, "\"recursive\": true") != NULL);
+    CHECK(strstr(json, "\"no_source\": false") != NULL);
+    CHECK(strstr(json, "\"languages\": [\".c\", \".java\"]") != NULL);
+    CHECK(strstr(json, "\"exclude\": [\"*.bak\"]") != NULL);
+    CHECK(strstr(json, "\"bob_cli\": \"bob\"") != NULL);
+    CHECK(strstr(json, "\"sources\": [\"./src\"]") != NULL);
 
     free(json);
-    printf("test_request_write passed\n");
+    test_result("test_request_write");
 }
 
 int main(int argc, char **argv) {
@@ -525,7 +546,6 @@ int main(int argc, char **argv) {
     zd_mkdir(scratch);
 
     test_options_init_defaults();
-    test_lang_canonical();
     test_mode_format_names();
 
     test_cli_exit_paths(scratch);
@@ -544,6 +564,11 @@ int main(int argc, char **argv) {
     test_request_validate();
     test_request_write(scratch);
 
+    if(g_run_failed) {
+        printf("\n%d zdoc CLI check%s FAILED.\n", g_run_failed,
+               g_run_failed == 1 ? "" : "s");
+        return -1;
+    }
     printf("\nAll zdoc CLI checks passed.\n");
     return 0;
 }
