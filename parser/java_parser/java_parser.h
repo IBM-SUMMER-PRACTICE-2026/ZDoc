@@ -19,10 +19,4 @@
 
 Module *java_parse(const char *path);
 
-// Print a module's symbols in a human-readable layout (see plx_parser demo).
-void java_print_module(const Module *m);
-
-// Free a module and its contents
-void module_free(Module *m);
-
 #endif

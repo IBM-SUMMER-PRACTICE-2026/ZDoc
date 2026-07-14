@@ -17,10 +17,7 @@ files themselves.
 ## Shared JSON contract
 
 Every parser emits the same shape so the rest of the pipeline stays
-language-agnostic. `module_doc` and each symbol's `doc` are optional. Note
-there is no per-module `"language"` field - the extractor already knows each
-file's language from its extension before it ever invokes the parser, so the
-parser doesn't need to echo it back.
+language-agnostic. Each symbol's `doc` is optional.
 
 ```json
 {
@@ -28,8 +25,8 @@ parser doesn't need to echo it back.
   "version": "<semver>",
   "modules": [
     {
-      "filename": "path/to/source.ext",
-      "module_doc": { "brief": "…", "params": [], "returns": "…", "notes": "…" },
+      "file": "path/to/source.ext",
+      "language": "<lang>",
       "symbols": [
         {
           "kind": "function|prototype|macro|type|variable|procedure|entry",
