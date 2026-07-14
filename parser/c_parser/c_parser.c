@@ -970,7 +970,7 @@ static void parse_statement(P *st)
                 prev = TOTHER;
                 break;
             }
-            if (kw_enum) {
+            if (kw_enum && !funcish) {
                 if (SPAN_OK(tag_name))
                     emit(st, CP_SYM_TYPE, tag_name, stmt_start, tp, line, &doc);
                 emitted = 1;
