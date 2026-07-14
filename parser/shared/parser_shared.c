@@ -12,7 +12,7 @@ int init_resources() {
     if (count < 0) return -1;
     files_count = count;
 
-    global_parsed_files_arry = calloc(files_count, sizeof(Module));
+    global_parsed_files_arry = malloc(sizeof(Module) * files_count);
     if (global_parsed_files_arry == NULL) return -1;
 
     paths_look_up = malloc(sizeof(char*) * files_count);
