@@ -104,11 +104,23 @@ enum ZDoc_Error zdoc_daemon_start_job(zd_options* options) {
     double start = now_seconds();
 
     type_thread threads[NUM_THREADS];
+    int threads_started = 0;
+    enum ZDoc_Error thread_status = ZDOC_OK;
     for (int i = 0; i < NUM_THREADS; i++) {
-        threads[i] = create_thread(thread_func);
+        thread_status = create_thread(thread_func, &threads[i]);
+        if (thread_status != ZDOC_OK) break;
+        threads_started++;
     }
-    for (int i = 0; i < NUM_THREADS; i++) {
-        wait_for_thread(&threads[i]);
+
+    for (int i = 0; i < threads_started; i++) {
+        enum ZDoc_Error wait_status = wait_for_thread(&threads[i]);
+        if (thread_status == ZDOC_OK) thread_status = wait_status;
+    }
+    if (thread_status != ZDOC_OK) {
+        fprintf(stderr, "thread pool failed (error %d)\n", thread_status);
+        modtree_dir_table_free(&global_dir_table);
+        modtree_file_table_free(&global_file_table);
+        return thread_status;
     }
 
     render(options->out_dir, options->title, options->format);

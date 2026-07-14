@@ -8,7 +8,7 @@ static DWORD WINAPI thread_start(LPVOID arg) {
     return 0;
 }
 
-type_thread create_thread(void (*thread_func)(void)) {
+enum ZDoc_Error create_thread(void (*thread_func)(void), type_thread* out) {
     HANDLE thread = CreateThread(
         NULL,
         0,
@@ -18,24 +18,30 @@ type_thread create_thread(void (*thread_func)(void)) {
         NULL
     );
 
-    return thread;
+    if (thread == NULL) return ZDOC_THREAD_CREATE_FAILED;
+    *out = thread;
+    return ZDOC_OK;
 }
 
-void wait_for_thread(type_thread* working_thread) {
-    WaitForSingleObject(*working_thread, INFINITE);
+enum ZDoc_Error wait_for_thread(type_thread* working_thread) {
+    DWORD result = WaitForSingleObject(*working_thread, INFINITE);
     CloseHandle(*working_thread);
+    return (result == WAIT_FAILED) ? ZDOC_THREAD_WAIT_FAILED : ZDOC_OK;
 }
 
 #else
 
-type_thread create_thread(void (*thread_func)(void)) {
+enum ZDoc_Error create_thread(void (*thread_func)(void), type_thread* out) {
     pthread_t thread;
-    pthread_create(&thread, NULL, (void *(*)(void *))thread_func, NULL);
-    return thread;
+    if (pthread_create(&thread, NULL, (void *(*)(void *))thread_func, NULL) != 0) {
+        return ZDOC_THREAD_CREATE_FAILED;
+    }
+    *out = thread;
+    return ZDOC_OK;
 }
 
-void wait_for_thread(type_thread* working_thread) {
-    pthread_join(*working_thread, NULL);
+enum ZDoc_Error wait_for_thread(type_thread* working_thread) {
+    return (pthread_join(*working_thread, NULL) != 0) ? ZDOC_THREAD_WAIT_FAILED : ZDOC_OK;
 }
 
 #endif
