@@ -20,7 +20,7 @@ Module* parse_file(enum Language lan, const char* path) {
     switch (lan)
     {
     case C:
-        result = cp_parse_file(path);
+        result = cp_parser(path);
         break;
     case JAVA:
         result = java_parse(path);

@@ -3,18 +3,18 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-int zd_request_validate(const zd_options *o) {
+enum ZDoc_Error zd_request_validate(const zd_options *o) {
     struct stat st;
     size_t i;
-    int bad = 0;
+    enum ZDoc_Error status = ZDOC_OK;
 
     for(i = 0; i < o->n_inputs; i++) {
         if(stat(o->inputs[i], &st) != 0) {
             fprintf(stderr, "zdoc: %s: no such file or directory\n", o->inputs[i]);
-            bad = 1;
+            status = ZDOC_FS_WALK_FAILED;
         }
     }
-    return bad ? -1 : 0;
+    return status;
 }
 
 /* JSON string literal with escaping, so paths with backslashes and

@@ -4,7 +4,7 @@
 #include <string.h>
 
 
-void zd_options_init(zd_options *o) {
+enum ZDoc_Error zd_options_init(zd_options *o) {
     int i;
 
     memset(o, 0, sizeof *o);
@@ -14,12 +14,20 @@ void zd_options_init(zd_options *o) {
     strcpy(o->bob_cli, "bob");
 
     o->languages = malloc(ZD_MAX_LANGS * sizeof *o->languages);
-    for(i = 0; i < ZD_MAX_LANGS; i++)
+    if (!o->languages) return ZDOC_OUT_OF_MEMORY;
+    for(i = 0; i < ZD_MAX_LANGS; i++) {
         o->languages[i] = malloc(ZD_LANG_MAX);
+        if (!o->languages[i]) return ZDOC_OUT_OF_MEMORY;
+    }
 
     o->excludes = malloc(ZD_MAX_EXCLUDES * sizeof *o->excludes);
-    for(i = 0; i < ZD_MAX_EXCLUDES; i++)
+    if (!o->excludes) return ZDOC_OUT_OF_MEMORY;
+    for(i = 0; i < ZD_MAX_EXCLUDES; i++) {
         o->excludes[i] = malloc(ZD_GLOB_MAX);
+        if (!o->excludes[i]) return ZDOC_OUT_OF_MEMORY;
+    }
+
+    return ZDOC_OK;
 }
 
 const char *zd_mode_name(zd_mode m) {

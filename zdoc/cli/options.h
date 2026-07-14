@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "../error_interface.h"
 
 #define ZD_VERSION "0.1.0"
 
@@ -47,7 +48,8 @@ typedef struct {
     size_t    n_inputs;
 } zd_options;
 
-void zd_options_init(zd_options *o);
+/* Returns ZDOC_OK on success, ZDOC_OUT_OF_MEMORY if an allocation failed. */
+enum ZDoc_Error zd_options_init(zd_options *o);
 
 const char *zd_mode_name(zd_mode m);
 const char *zd_format_name(zd_format f);

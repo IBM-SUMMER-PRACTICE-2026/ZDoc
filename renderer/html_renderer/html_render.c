@@ -345,11 +345,20 @@ static void write_foot(FILE *o, int has_diagram) {
     fputs("</body>\n</html>\n", o);
 }
 
+/* Whether status falls within the contiguous enum ZDoc_Error range, as
+  opposed to garbage (e.g. an uninitialized Module.status). Duplicated in
+  md_renderer for the same reason as language_for_name - no shared stage
+  left to hold one copy. */
+static int zdoc_status_is_valid(enum ZDoc_Error status) {
+    return status >= ZDOC_UNSUPPORTED_LANGUAGE && status <= ZDOC_UNSUPPORTED_FORMAT;
+}
+
 /* Writes one file's own out_dir/<relpath>.html: page shell plus that
  * file's symbols. Mirrors md_renderer's write_module_file - same relpath
  * scheme, same mkdir-of-parent-then-fopen shape. */
 static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
-                            const Module **by_file, size_t file_index, const char *out_dir) {
+                            const Module **by_file, const Module *modules, size_t module_count,
+                            size_t file_index, const char *out_dir) {
     const modtree_file_t *file = &files->files[file_index];
     const char *language = file->name ? language_for_name(file->name) : NULL;
     const Module *mod = by_file[file_index];
@@ -376,9 +385,13 @@ static enum ZDoc_Error write_file_page(const modtree_dir_table_t *dirs, const mo
 
     write_head(o, file->name ? file->name : "(unnamed)", has_diagram);
 
-    if(!mod)
-        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted.</p>\n", o);
-    else if(mod->symbolCount == 0)
+    if(!mod) {
+        enum ZDoc_Error file_status = (file_index < module_count) ? modules[file_index].status : ZDOC_DEFAULT;
+        fputs("<p class=\"error\">Parser failed for this file — no documentation extracted", o);
+        if(file_status != ZDOC_OK && zdoc_status_is_valid(file_status))
+            fprintf(o, " (error code %d)", (int)file_status);
+        fputs(".</p>\n", o);
+    } else if(mod->symbolCount == 0)
         fputs("<p class=\"empty\">No documented symbols.</p>\n", o);
     if(mod)
         for(int k = 0; k < mod->symbolCount; k++) render_symbol(o, &mod->symbols[k], language);
@@ -438,7 +451,7 @@ enum ZDoc_Error html_render(const modtree_dir_table_t *dirs, const modtree_file_
 
     enum ZDoc_Error rc = ZDOC_OK;
     for(size_t i = 0; i < files->count; i++) {
-        rc = write_file_page(dirs, files, by_file, i, out_dir);
+        rc = write_file_page(dirs, files, by_file, modules, module_count, i, out_dir);
         if(rc != ZDOC_OK) break;
     }
 

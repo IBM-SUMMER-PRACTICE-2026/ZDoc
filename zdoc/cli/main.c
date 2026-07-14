@@ -10,13 +10,13 @@ int main(int argc, char **argv) {
     zd_options opt;
     zd_cli_result rc;
 
-    zd_options_init(&opt);
+    if (zd_options_init(&opt) != ZDOC_OK) return 4;
     zd_config_load(&opt);
     rc = zd_cli_parse(argc, argv, &opt);
     if(rc == ZD_CLI_EXIT) return 0;
     if(rc == ZD_CLI_ERROR) return 2;
 
-    if(zd_request_validate(&opt) != 0) return 1;
+    if(zd_request_validate(&opt) != ZDOC_OK) return 1;
 
     /* Placeholder for the daemon call: emit the request it will receive. */
     // zd_request_write(&opt, stdout);
