@@ -6,15 +6,19 @@
  */
 #include "md_renderer.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
+#define RMDIR(path) _rmdir(path)
 #else
 #include <sys/stat.h>
+#include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
+#define RMDIR(path) rmdir(path)
 #endif
 
 /* Best-effort recursive mkdir - ignores failures (EEXIST is the common,
@@ -94,7 +98,11 @@ static int write_module_file(const DxModel *m, size_t file_index, const char *ou
     const DxFile *f = &m->files[file_index];
 
     char relpath[900];
-    if(md_output_relpath(m, file_index, relpath, sizeof relpath) != 0) return -1;
+    if(md_output_relpath(m, file_index, relpath, sizeof relpath) != 0) {
+        fprintf(stderr, "md_renderer: output path too long for %s\n",
+                f->name ? f->name : "(unnamed)");
+        return -1;
+    }
 
     char full_path[1200];
     snprintf(full_path, sizeof full_path, "%s/%s", out_dir, relpath);
@@ -105,7 +113,11 @@ static int write_module_file(const DxModel *m, size_t file_index, const char *ou
     if(slash) { *slash = '\0'; mkdir_p(dir_only); }
 
     FILE *o = fopen(full_path, "wb");
-    if(!o) return -1;
+    if(!o) {
+        fprintf(stderr, "md_renderer: cannot open %s: %s\n",
+                full_path, strerror(errno));
+        return -1;
+    }
 
     char src_path[900];
     md_file_path(m, file_index, src_path, sizeof src_path);
@@ -113,8 +125,12 @@ static int write_module_file(const DxModel *m, size_t file_index, const char *ou
 
     for(size_t k = 0; k < f->symbol_count; k++) write_symbol(o, &f->symbols[k], f->language);
 
-    fclose(o);
-    return 0;
+    int rc = ferror(o) ? -1 : 0;
+    if(fclose(o) != 0) rc = -1;
+    if(rc != 0)
+        fprintf(stderr, "md_renderer: write error on %s: %s\n",
+                full_path, strerror(errno));
+    return rc;
 }
 
 /* Recursively prints out_dir's directory/file structure as a nested,
@@ -141,19 +157,62 @@ static int write_index(const DxModel *m, const char *out_dir, const char *title)
     snprintf(path, sizeof path, "%s/index.md", out_dir);
 
     FILE *o = fopen(path, "wb");
-    if(!o) return -1;
+    if(!o) {
+        fprintf(stderr, "md_renderer: cannot open %s: %s\n",
+                path, strerror(errno));
+        return -1;
+    }
 
     fprintf(o, "# %s\n\n", (title && title[0]) ? title : "Documentation");
     print_tree(o, m, -1, 0);
 
-    fclose(o);
-    return 0;
+    int rc = ferror(o) ? -1 : 0;
+    if(fclose(o) != 0) rc = -1;
+    if(rc != 0)
+        fprintf(stderr, "md_renderer: write error on %s: %s\n",
+                path, strerror(errno));
+    return rc;
+}
+
+/* Best-effort removal of everything a failed render wrote (module files up
+ * to and including files_upto-1, index.md, and any directories that are now
+ * empty), so the caller gets the error instead of a partial render. */
+static void remove_outputs(const DxModel *m, size_t files_upto, const char *out_dir) {
+    char full[1200];
+
+    snprintf(full, sizeof full, "%s/index.md", out_dir);
+    remove(full);
+
+    for(size_t i = 0; i < files_upto; i++) {
+        char relpath[900];
+        if(md_output_relpath(m, i, relpath, sizeof relpath) != 0) continue;
+        snprintf(full, sizeof full, "%s/%s", out_dir, relpath);
+        remove(full);
+    }
+
+    /* Deepest directories tend to sit later in the table; walking it in
+     * reverse removes children before parents. Non-empty ones (e.g. an
+     * out_dir that existed before the render) are left alone. */
+    for(size_t i = m->dir_count; i > 0; i--) {
+        char relpath[900];
+        if(md_dir_path(m, (int)(i - 1), relpath, sizeof relpath) != 0) continue;
+        snprintf(full, sizeof full, "%s/%s", out_dir, relpath);
+        RMDIR(full);
+    }
+    RMDIR(out_dir);
 }
 
 int md_render(const DxModel *m, const char *out_dir, const char *title) {
     mkdir_p(out_dir);
     for(size_t i = 0; i < m->file_count; i++) {
-        if(write_module_file(m, i, out_dir) != 0) return -1;
+        if(write_module_file(m, i, out_dir) != 0) {
+            remove_outputs(m, i + 1, out_dir); /* i + 1: drop the partial file too */
+            return -1;
+        }
     }
-    return write_index(m, out_dir, title);
+    if(write_index(m, out_dir, title) != 0) {
+        remove_outputs(m, m->file_count, out_dir);
+        return -1;
+    }
+    return 0;
 }

@@ -395,6 +395,40 @@ static void test_md_write_failure(const char *out_dir) {
     CHECK(md_render(&m, bad_path, "Should Fail") == -1);
 }
 
+/*A render that fails partway removes what it already wrote - the caller
+gets the error and no partial render is left behind. Good.java renders to
+src/Good.md first; Bad.java's parent "directory" is also named Good.md,
+so writing under src/Good.md/... collides with that file and fails.*/
+static void test_md_failed_render_cleans_up(const char *out_dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/cleanup", out_dir);
+
+    DxDir dirs[] = {
+        {.name = "src", .parent_index = -1},
+        {.name = "Good.md", .parent_index = 0},
+    };
+    DxFile files[] = {
+        {.name = "Good.java", .parent_dir_index = 0, .language = "java",
+         .symbols = NULL, .symbol_count = 0, .error = 0},
+        {.name = "Bad.java", .parent_dir_index = 1, .language = "java",
+         .symbols = NULL, .symbol_count = 0, .error = 0},
+    };
+    DxModel m = {.dirs = dirs, .dir_count = 2, .files = files, .file_count = 2};
+
+    CHECK(md_render(&m, path, "Cleanup") == -1);
+
+    /* the module file that WAS written successfully must be gone again */
+    char good_path[600];
+    snprintf(good_path, sizeof good_path, "%s/src/Good.md", path);
+    FILE *f = fopen(good_path, "rb");
+    CHECK(f == NULL);
+
+    char index_path[600];
+    snprintf(index_path, sizeof index_path, "%s/index.md", path);
+    f = fopen(index_path, "rb");
+    CHECK(f == NULL);
+}
+
 int main(int argc, char **argv) {
     /* volatile: read again after a longjmp back into this frame */
     const char *volatile out_dir = argc > 1 ? argv[1] : "tests/tmp";
@@ -411,6 +445,7 @@ int main(int argc, char **argv) {
     RUN(test_md_raw_passthrough(out_dir));
     RUN(test_md_diagram_refs_ignored(out_dir));
     RUN(test_md_write_failure(out_dir));
+    RUN(test_md_failed_render_cleans_up(out_dir));
 
     if (n_failed > 0) {
         printf("\n%d md_renderer test(s) FAILED.\n", n_failed);

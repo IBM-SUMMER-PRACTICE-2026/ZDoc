@@ -535,6 +535,30 @@ static void test_write_failure(const char *out_dir) {
     CHECK(html_render(&m, bad_path, "Should Fail") == -1);
 }
 
+/*A render that fails partway (a directory sits where index.html should
+go, so the final rename fails) returns -1 and leaves no partial output
+behind - in particular no index.html.tmp.*/
+static void test_failed_render_leaves_no_output(const char *out_dir) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/no_partial", out_dir);
+
+    DxDir dirs[] = { {.name = "src", .parent_index = -1} };
+    DxModel m = {.dirs = dirs, .dir_count = 1, .files = NULL, .file_count = 0};
+
+    /* Rendering INTO <path>/index.html first leaves a non-empty directory
+       with that name in the way of the real render below. */
+    char blocker_dir[600];
+    snprintf(blocker_dir, sizeof blocker_dir, "%s/index.html", path);
+    CHECK(html_render(&m, blocker_dir, "Blocker") == 0);
+
+    CHECK(html_render(&m, path, "Should Fail") == -1);
+
+    char tmp_file[700];
+    snprintf(tmp_file, sizeof tmp_file, "%s/index.html.tmp", path);
+    FILE *f = fopen(tmp_file, "rb");
+    CHECK(f == NULL);
+}
+
 int main(int argc, char **argv) {
     /* volatile: read again after a longjmp back into this frame */
     const char *volatile out_dir = argc > 1 ? argv[1] : "tests/tmp";
@@ -552,6 +576,7 @@ int main(int argc, char **argv) {
     RUN(test_sibling_order(out_dir));
     RUN(test_multiple_symbols_in_file(out_dir));
     RUN(test_write_failure(out_dir));
+    RUN(test_failed_render_leaves_no_output(out_dir));
 
     if (n_failed > 0) {
         printf("\n%d html_renderer test(s) FAILED.\n", n_failed);

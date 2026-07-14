@@ -8,6 +8,7 @@
 #include "html_renderer.h"
 #include "../../extractor/doc_extractor/src/xalloc.h" /* xmalloc */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -276,10 +277,18 @@ static const char MERMAID_JS[] =
 int html_render(const DxModel *m, const char *out_dir, const char *title) {
     mkdir_p(out_dir);
 
-    char path[1200];
+    /* Render into a temp file and rename it over index.html only on
+       success, so a failed render never leaves a partial page behind
+       (and never clobbers a previous good one). */
+    char path[1200], tmp_path[1200];
     snprintf(path, sizeof path, "%s/index.html", out_dir);
-    FILE *o = fopen(path, "wb");
-    if(!o) return -1;
+    snprintf(tmp_path, sizeof tmp_path, "%s/index.html.tmp", out_dir);
+    FILE *o = fopen(tmp_path, "wb");
+    if(!o) {
+        fprintf(stderr, "html_renderer: cannot open %s: %s\n",
+                tmp_path, strerror(errno));
+        return -1;
+    }
 
     adjacency_t a;
     adjacency_build(&a, m);
@@ -324,7 +333,26 @@ int html_render(const DxModel *m, const char *out_dir, const char *title) {
     fputs("</body>\n</html>\n", o);
 
     adjacency_free(&a);
-    int rc = ferror(o) ? -1 : 0;
-    if(fclose(o) != 0) rc = -1;
+    int rc = 0;
+    if(ferror(o)) {
+        fprintf(stderr, "html_renderer: write error on %s: %s\n",
+                tmp_path, strerror(errno));
+        rc = -1;
+    }
+    if(fclose(o) != 0) {
+        if(rc == 0)
+            fprintf(stderr, "html_renderer: cannot close %s: %s\n",
+                    tmp_path, strerror(errno));
+        rc = -1;
+    }
+    if(rc == 0) {
+        remove(path); /* Windows rename() refuses to replace an existing file */
+        if(rename(tmp_path, path) != 0) {
+            fprintf(stderr, "html_renderer: cannot move %s to %s: %s\n",
+                    tmp_path, path, strerror(errno));
+            rc = -1;
+        }
+    }
+    if(rc != 0) remove(tmp_path);
     return rc;
 }
