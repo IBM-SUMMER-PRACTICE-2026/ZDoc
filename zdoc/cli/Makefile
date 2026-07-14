@@ -22,6 +22,13 @@ endif
 BIN  = zdoc$(EXE)
 OBJS = main.o options.o cli.o config.o request.o
 
+# Unit tests link the CLI objects (everything but main.o) straight into the
+# test binary, same as the renderer tests - no scripts, no golden files.
+TEST_BIN  = cli_test$(EXE)
+TEST_OBJS = tests/cli_test.o
+LIB_OBJS  = options.o cli.o config.o request.o
+TEST_DIR  = zdoc-test-tmp
+
 # The daemon engine lives in sibling components (parser/, extractor/,
 # ../threading_interface). Compiled straight from source into the final
 # link, like ../Makefile does, rather than emitting .o files into those
@@ -111,11 +118,18 @@ cli.o:     cli.c cli.h options.h
 config.o:  config.c config.h options.h
 request.o: request.c request.h options.h
 
-test: $(BIN)
+tests/cli_test.o: tests/cli_test.c cli.h options.h config.h request.h
+
+$(TEST_BIN): $(LIB_OBJS) $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(LIB_OBJS) $(TEST_OBJS)
+
+test: $(TEST_BIN)
 ifdef WINDOWS_CMD
-	$(RUN) --version
+	-if exist $(TEST_DIR) rmdir /S /Q $(TEST_DIR)
+	$(TEST_BIN) $(TEST_DIR)
 else
-	sh tests/run_tests.sh
+	rm -rf $(TEST_DIR)
+	./$(TEST_BIN) $(TEST_DIR)
 endif
 
 # Put `zdoc` on PATH. PREFIX must be a directory already on PATH.
@@ -128,6 +142,11 @@ uninstall:
 	-$(RM) $(call fixpath,$(PREFIX)/$(BIN))
 
 clean:
-	-$(RM) $(call fixpath,$(BIN) $(OBJS))
+	-$(RM) $(call fixpath,$(BIN) $(OBJS) $(TEST_BIN) $(TEST_OBJS))
+ifdef WINDOWS_CMD
+	-if exist $(TEST_DIR) rmdir /S /Q $(TEST_DIR)
+else
+	rm -rf $(TEST_DIR)
+endif
 
 .PHONY: all test clean install uninstall
