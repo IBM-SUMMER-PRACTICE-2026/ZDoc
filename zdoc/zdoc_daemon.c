@@ -123,8 +123,14 @@ enum ZDoc_Error zdoc_daemon_start_job(zd_options* options) {
         return thread_status;
     }
 
-    render(options->out_dir, options->title, options->format);
-    
+    enum ZDoc_Error render_status = render(options->out_dir, options->title, options->format);
+    if (render_status != ZDOC_OK) {
+        fprintf(stderr, "render failed (error %d)\n", render_status);
+        modtree_dir_table_free(&global_dir_table);
+        modtree_file_table_free(&global_file_table);
+        return render_status;
+    }
+
     double elapsed = now_seconds() - start;
     printf("%d threads parsed %d files and rendered them in %.10f s\n",
            NUM_THREADS, files_count, elapsed);

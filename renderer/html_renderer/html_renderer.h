@@ -37,9 +37,11 @@ extern "C" {
  * to its parsed module via pathIndex (modules[0..module_count)) - a file
  * with no match gets its own page with the "Parser failed for this file"
  * notice. 'title' (may be NULL) is used as index.html's heading; each
- * file's own page is headed with its filename. Returns 0 on success, -1 on
- * a write/IO failure. */
-int html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
+ * file's own page is headed with its filename. Returns ZDOC_OK on success;
+ * ZDOC_PATH_TOO_LONG if a reconstructed output path overflowed its buffer,
+ * or ZDOC_FILE_WRITE_FAILED if a page could not be opened, written or
+ * closed. */
+enum ZDoc_Error html_render(const modtree_dir_table_t *dirs, const modtree_file_table_t *files,
                  const Module *modules, size_t module_count,
                  const char *out_dir, const char *title);
 
