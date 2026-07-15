@@ -143,7 +143,55 @@ enum ZDoc_Error bob_call(const char * prompt, char ** response, size_t * respons
     return ZDOC_OK;
 }
 
+/* Bob's response sometimes wraps the flowchart in a markdown code fence
+ * (```mermaid ... ```) despite the prompt asking for no prose. Strip a
+ * leading fence line (```, optionally followed by "mermaid") and a
+ * trailing ``` line so Mermaid.js never sees fence syntax as diagram text. */
+static void strip_mermaid_fence(const char ** diagram, size_t * diagram_len) {
+    const char * start = *diagram;
+    const char * end = start + *diagram_len;
+
+    /* Skip any blank line(s) Bob left between the "## line N:" header and
+     * the fence before looking for the fence itself. */
+    while (start < end && (*start == '\n' || *start == '\r' || *start == ' ' || *start == '\t')) {
+        start++;
+    }
+
+    if (end - start >= 3 && strncmp(start, "```", 3) == 0) {
+        const char * line_end = memchr(start, '\n', (size_t)(end - start));
+        if (line_end == NULL) {
+            line_end = end;
+        }
+        start = line_end < end ? line_end + 1 : end;
+        while (start < end && (*start == '\n' || *start == '\r')) {
+            start++;
+        }
+    }
+
+    const char * trailing = end;
+    while (trailing > start && (trailing[-1] == '\n' || trailing[-1] == '\r')) {
+        trailing--;
+    }
+    if (trailing - start >= 3 && strncmp(trailing - 3, "```", 3) == 0) {
+        const char * fence_start = trailing - 3;
+        while (fence_start > start && fence_start[-1] != '\n') {
+            fence_start--;
+        }
+        end = fence_start;
+        while (end > start && (end[-1] == '\n' || end[-1] == '\r')) {
+            end--;
+        }
+    } else {
+        end = trailing;
+    }
+
+    *diagram = start;
+    *diagram_len = (size_t)(end - start);
+}
+
 enum ZDoc_Error append_diagram_to_symbol(const char * diagram, size_t diagram_len, Symbol * symbol) {
+    strip_mermaid_fence(&diagram, &diagram_len);
+
     char * copy = xstrndup(diagram, diagram_len);
     if (copy == NULL) {
         return ZDOC_OUT_OF_MEMORY;

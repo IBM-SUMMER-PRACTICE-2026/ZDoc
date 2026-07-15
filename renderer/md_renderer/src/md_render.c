@@ -192,6 +192,7 @@ static void write_symbol(FILE *o, const Symbol *s, const char *language) {
 
     if(s->output && s->output[0]) fprintf(o, "\n**Returns**\n%s\n", s->output);
     if(s->notes && s->notes[0]) fprintf(o, "\n**Notes**\n%s\n", s->notes);
+    if(s->diagram && s->diagram[0]) fprintf(o, "\n**Block Diagram**\n```mermaid\n%s\n```\n", s->diagram);
 
     fputs("\n</details>\n\n", o);
 }
