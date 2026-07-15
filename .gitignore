@@ -23,6 +23,9 @@ dist/
 zdoc.yaml
 zdoc.json
 
+# Bob CLI's own local run artifacts (error logs, etc.)
+.bob/
+
 # Editor / OS cruft
 .DS_Store
 *.swp
