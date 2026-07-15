@@ -36,6 +36,7 @@ THREAD   = ../threading_interface
 RENDERIF = ../renderer_interface
 MDREND   = ../../renderer/md_renderer/src
 HTMLREND = ../../renderer/html_renderer
+BOB      = ../../ai-bob
 
 DAEMON_SRCS = ../zdoc_daemon.c \
               $(PARSER)/parser_interface.c \
@@ -54,7 +55,9 @@ DAEMON_SRCS = ../zdoc_daemon.c \
               $(THREAD)/threading_interface.c \
               $(RENDERIF)/renderer_interface.c \
               $(MDREND)/md_render.c \
-              $(HTMLREND)/html_render.c
+              $(HTMLREND)/html_render.c \
+              $(BOB)/bob-client.c \
+              $(BOB)/process_interface/process_interface.c
 
 DAEMON_HDRS = ../zdoc_daemon.h \
               $(PARSER)/parser_interface.h \
@@ -73,7 +76,9 @@ DAEMON_HDRS = ../zdoc_daemon.h \
               $(THREAD)/threading_interface.h \
               $(RENDERIF)/renderer_interface.h \
               $(MDREND)/md_renderer.h \
-              $(HTMLREND)/html_renderer.h
+              $(HTMLREND)/html_renderer.h \
+              $(BOB)/bob-client.h \
+              $(BOB)/process_interface/process_interface.h
 
 # Where `make install` drops the binary. Must be a directory already on PATH.
 # Override on the command line, e.g. `make install PREFIX=/usr/local/bin`.
