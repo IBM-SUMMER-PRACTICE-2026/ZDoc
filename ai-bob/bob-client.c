@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "bob-client.h"
 #include "process_interface/process_interface.h"
@@ -59,6 +60,11 @@
     #define FUNCTIONS_LABEL_LEN 55
 
     #define FUNCTIONS_LABEL "\n\nFunctions to diagram, each tagged by its start line:\n"
+
+
+    #define DIAGRAM_HEADER_LABEL "## line "
+
+    #define DIAGRAM_HEADER_LABEL_LEN 8
 
 
 enum ZDoc_Error build_bob_prompt(const char * path, Module * module, char ** prompt) {
@@ -134,5 +140,52 @@ enum ZDoc_Error bob_call(const char * prompt, char ** response, size_t * respons
 
     *response = out;
     *response_len = strlen(out);
+    return ZDOC_OK;
+}
+
+enum ZDoc_Error append_diagram_to_symbol(const char * diagram, size_t diagram_len, Symbol * symbol) {
+    char * copy = xstrndup(diagram, diagram_len);
+    if (copy == NULL) {
+        return ZDOC_OUT_OF_MEMORY;
+    }
+
+    free(symbol->diagram);
+    symbol->diagram = copy;
+    return ZDOC_OK;
+}
+
+enum ZDoc_Error append_diagrams(const char * response, size_t response_len, Module * module) {
+    const char * response_end = response + response_len;
+    const char * cursor = response;
+
+    while ((cursor = strstr(cursor, DIAGRAM_HEADER_LABEL)) != NULL) {
+        uint32_t line = (uint32_t)strtoul(cursor + DIAGRAM_HEADER_LABEL_LEN, NULL, 10);
+
+        const char * diagram = strchr(cursor, '\n');
+        if (diagram == NULL) {
+            break;
+        }
+        diagram++;
+
+        const char * next_header = strstr(diagram, DIAGRAM_HEADER_LABEL);
+        const char * diagram_end = next_header ? next_header : response_end;
+
+        while (diagram_end > diagram && (diagram_end[-1] == '\n' || diagram_end[-1] == '\r')) {
+            diagram_end--;
+        }
+
+        for (int i = 0; i < module->symbolCount; i++) {
+            if (module->symbols[i].line == line) {
+                enum ZDoc_Error rc = append_diagram_to_symbol(diagram, (size_t)(diagram_end - diagram), &module->symbols[i]);
+                if (rc != ZDOC_OK) {
+                    return rc;
+                }
+                break;
+            }
+        }
+
+        cursor = next_header ? next_header : response_end;
+    }
+
     return ZDOC_OK;
 }
