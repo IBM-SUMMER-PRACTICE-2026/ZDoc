@@ -107,14 +107,14 @@ void thread_func() {
             continue;
         }
 
-        if (finished->status == ZDOC_DEFAULT && daemon_mode == ZD_MODE_AI) {
-            enum ZDoc_Error bob_status = bob_client(path, finished, daemon_bob_cli);
-            if (bob_status != ZDOC_OK) {
-                free_module(finished);
-                global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(bob_status);
-                continue;
-            }
-        }
+        // if (finished->status == ZDOC_DEFAULT && daemon_mode == ZD_MODE_AI) {
+        //     enum ZDoc_Error bob_status = bob_client(path, finished, daemon_bob_cli);
+        //     if (bob_status != ZDOC_OK) {
+        //         free_module(finished);
+        //         global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(bob_status);
+        //         continue;
+        //     }
+        // }
 
         finished->pathIndex = curr_possition_in_arry;
         global_parsed_files_arry[curr_possition_in_arry] = *finished;
@@ -184,6 +184,21 @@ enum ZDoc_Error zdoc_daemon_start_job(zd_options* options) {
         modtree_dir_table_free(&global_dir_table);
         modtree_file_table_free(&global_file_table);
         return thread_status;
+    }
+
+    if (daemon_mode == ZD_MODE_AI) {
+        for (int curr_possition_in_arry = 0; curr_possition_in_arry < files_count; curr_possition_in_arry++) {
+            Module* finished = &global_parsed_files_arry[curr_possition_in_arry];
+            char* path = paths_look_up[curr_possition_in_arry];
+            if (finished->status == ZDOC_DEFAULT) {
+                enum ZDoc_Error bob_status = bob_client(path, finished, daemon_bob_cli);
+                if (bob_status != ZDOC_OK) {
+                    free_module(finished);
+                    global_parsed_files_arry[curr_possition_in_arry] = set_NULL_on_fail(bob_status);
+                    continue;
+                }
+            }
+        }
     }
 
     enum ZDoc_Error render_status = render(options->out_dir, options->title, options->format);
