@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "../error_interface.h"
 
-#define ZD_VERSION "0.1.0"
+#define ZD_VERSION "0.0.4"
 
 #define ZD_PATH_MAX     1024
 #define ZD_TITLE_MAX     256
