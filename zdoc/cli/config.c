@@ -6,6 +6,16 @@
 #define ZD_CFG_LINE_MAX 1024
 #define ZD_CFG_JSON_MAX 16384
 
+/**
+ * @brief Trim leading and trailing whitespace from s in place.
+ *
+ * Skips leading spaces/tabs and NUL-terminates after the last non
+ * space/tab/CR/LF character.
+ *
+ * @param s String to trim, modified in place.
+ * @return Pointer to the first non-whitespace character in s (not
+ *         necessarily s itself).
+ */
 static char *zd_trim(char *s) {
     char *end;
     while(*s == ' ' || *s == '\t') s++;
@@ -15,6 +25,15 @@ static char *zd_trim(char *s) {
     return s;
 }
 
+/**
+ * @brief Truncate s at a YAML-style '#' comment, respecting quotes.
+ *
+ * Tracks single- and double-quote state while scanning so a '#' inside a
+ * quoted value is not mistaken for a comment marker.
+ *
+ * @param s Line to strip, modified in place (truncated at the comment,
+ *          if any).
+ */
 static void zd_strip_comment(char *s) {
     int in_single = 0, in_double = 0;
     char *p;
@@ -29,6 +48,13 @@ static void zd_strip_comment(char *s) {
     }
 }
 
+/**
+ * @brief Strip a single matching pair of surrounding quotes from s.
+ *
+ * @param s String to unquote, modified in place when quoted.
+ * @return Pointer to the unquoted string (s + 1 and NUL-terminated one
+ *         short, if s was quoted; s itself otherwise).
+ */
 static char *zd_unquote(char *s) {
     size_t n = strlen(s);
 
@@ -40,10 +66,31 @@ static char *zd_unquote(char *s) {
     return s;
 }
 
+/**
+ * @brief Parse a config boolean value.
+ *
+ * @param v Value string to test.
+ * @return Nonzero if v is "true", "yes", or "on"; zero otherwise
+ *         (including for any other/misspelled value).
+ */
 static int zd_bool(const char *v) {
     return strcmp(v, "true") == 0 || strcmp(v, "yes") == 0 || strcmp(v, "on") == 0;
 }
 
+/**
+ * @brief Apply a single scalar "key: value" config entry to o.
+ *
+ * Unquotes val, then dispatches on key to the matching zd_options field
+ * (title, out_dir, bob_cli, bob_args, recursive, no_source, mode,
+ * output_format). Unknown keys and unrecognized enum values are reported
+ * to stderr with file/line but otherwise ignored.
+ *
+ * @param o Options struct to update in place.
+ * @param key Config key name.
+ * @param val Raw value string; unquoted in place before use.
+ * @param file Source file name, used only for diagnostics.
+ * @param line Source line number, used only for diagnostics.
+ */
 static void zd_set_scalar(zd_options *o, const char *key, char *val, const char *file , int line) {
     val = zd_unquote(val);
 
@@ -77,6 +124,12 @@ typedef struct {
     int line;
 } zd_json;
 
+/**
+ * @brief Advance j past whitespace, tracking newlines for diagnostics.
+ *
+ * @param j JSON cursor to advance in place; j->line is incremented for
+ *          each '\n' skipped.
+ */
 static void zd_json_ws(zd_json *j) {
     while(*j->p == ' ' || *j->p == '\t' || *j->p  == '\r' || *j->p == '\n') {
         if(*j->p == '\n') j->line++;
@@ -84,12 +137,33 @@ static void zd_json_ws(zd_json *j) {
     }
 }
 
+/**
+ * @brief Report a zdoc.json parse error to stderr.
+ *
+ * @param j JSON cursor, used for its current line number.
+ * @param msg Error message to report.
+ * @return Always 0, so callers can `return zd_json_err(...)` directly as
+ *         their own failure return.
+ */
 static int zd_json_err(zd_json *j, const char *msg) {
     fprintf(stderr, "zdoc: zdoc.json:%d: %s\n", j->line, msg);
     return 0;
 }
 
-//Parse a string at the cursor into the buffer handling \" \\ \/ \n \t \r
+/**
+ * @brief Parse a JSON string literal at the cursor into buf.
+ *
+ * Handles \" \\ \/ \n \t \r escapes; any other escaped character passes
+ * through unescaped. Truncates silently if the decoded string would not
+ * fit in cap.
+ *
+ * @param j JSON cursor, positioned at the opening '"'; advanced past the
+ *          closing '"' on success.
+ * @param buf Output buffer for the decoded string.
+ * @param cap Size of buf in bytes, including the terminating NUL.
+ * @return 1 on success, 0 if the cursor was not at a '"' or the string
+ *         was unterminated (an error is also reported via zd_json_err).
+ */
 static int zd_json_str(zd_json *j, char *buf, size_t cap) {
     size_t n = 0;
     
@@ -119,6 +193,23 @@ static int zd_json_str(zd_json *j, char *buf, size_t cap) {
     return 1;
 }
 
+/**
+ * @brief Parse one JSON value for key and apply it to o.
+ *
+ * Supports string values (dispatched through zd_set_scalar), true/false
+ * literals (applied directly to recursive/no_source, since those are the
+ * only boolean keys), and string arrays (applied to languages or
+ * exclude, replacing whatever the array already held). Any other value
+ * shape, or a boolean/array for a key that doesn't take one, is reported
+ * as an error or warning.
+ *
+ * @param j JSON cursor, positioned at (or before, across whitespace) the
+ *          value; advanced past it on success.
+ * @param o Options struct to update in place.
+ * @param key Config key this value belongs to.
+ * @return 1 on success, 0 on a malformed value (an error was reported via
+ *         zd_json_err).
+ */
 static int zd_json_value(zd_json *j, zd_options *o, const char *key) {
     zd_json_ws(j);
 
@@ -188,6 +279,18 @@ static int zd_json_value(zd_json *j, zd_options *o, const char *key) {
     return zd_json_err(j, "unsupported value (use strings, true/false or string lists)");
 }
 
+/**
+ * @brief Parse a zdoc.json object from f and apply its entries to o.
+ *
+ * Reads the whole file into a fixed-size buffer (warning and truncating
+ * if it doesn't fit), then walks a flat "key": value, ... object,
+ * applying each entry via zd_json_value. Any malformed syntax stops
+ * parsing early after reporting the error.
+ *
+ * @param f Open zdoc.json file, read from the current position to EOF
+ *          (or until the buffer fills).
+ * @param o Options struct to update in place.
+ */
 static void zd_json_load(FILE *f, zd_options *o) {
     char buf[ZD_CFG_JSON_MAX];
     char key[64]; 
@@ -239,6 +342,19 @@ static void zd_json_load(FILE *f, zd_options *o) {
 }
 
 
+/**
+ * @brief Load ./zdoc.yaml (or ./zdoc.json as a fallback) on top of o.
+ *
+ * Tries zdoc.yaml first; if it doesn't exist, falls back to zdoc.json via
+ * zd_json_load(). A missing file is not an error - o is left holding
+ * whatever defaults it already had. For YAML, walks the file line by
+ * line, stripping comments, handling "- item" list entries under a
+ * currently open languages:/exclude: key, and otherwise splitting
+ * "key: value" pairs through zd_set_scalar(); malformed lines are
+ * reported to stderr and skipped rather than aborting the load.
+ *
+ * @param o Options struct to update in place.
+ */
 void zd_config_load(zd_options *o) {
     FILE *f;
     char line[ZD_CFG_LINE_MAX];

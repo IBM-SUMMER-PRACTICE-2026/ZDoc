@@ -3,6 +3,17 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+/**
+ * @brief Check that every source path in o exists on disk.
+ *
+ * Calls stat() on each of o->inputs[0..n_inputs), reporting each missing
+ * path to stderr. Checks all inputs rather than stopping at the first
+ * failure, so a single run reports every bad path at once.
+ *
+ * @param o Options holding the resolved source paths to validate.
+ * @return ZDOC_OK if every path exists, or ZDOC_FS_WALK_FAILED if at
+ *         least one did not.
+ */
 enum ZDoc_Error zd_request_validate(const zd_options *o) {
     struct stat st;
     size_t i;
@@ -17,8 +28,16 @@ enum ZDoc_Error zd_request_validate(const zd_options *o) {
     return status;
 }
 
-/* JSON string literal with escaping, so paths with backslashes and
-   titles with quotes survive intact. */
+/**
+ * @brief Write s to out as an escaped JSON string literal.
+ *
+ * Escapes '"', '\\', '\n', '\r', '\t', and any other control character
+ * (as \\uXXXX), so paths with backslashes and titles with quotes survive
+ * intact.
+ *
+ * @param out Output stream to write to.
+ * @param s String to encode.
+ */
 static void zd_json_string(FILE *out, const char *s) {
     fputc('"', out);
     for(; *s; s++) {
@@ -38,8 +57,18 @@ static void zd_json_string(FILE *out, const char *s) {
     fputc('"', out);
 }
 
-/* Array of n strings laid out in rows of `stride` bytes - lets one helper
-   serve excludes and inputs despite their different row widths. */
+/**
+ * @brief Write a JSON array of n fixed-width string rows.
+ *
+ * Lets one helper serve excludes and inputs despite their different row
+ * widths: each element is read from base + i * stride rather than
+ * through a pointer array.
+ *
+ * @param out Output stream to write to.
+ * @param base Address of the first row.
+ * @param stride Byte width of each row.
+ * @param n Number of rows to write.
+ */
 static void zd_json_array(FILE *out, const char *base, size_t stride, size_t n) {
     size_t i;
 
@@ -51,8 +80,17 @@ static void zd_json_array(FILE *out, const char *base, size_t stride, size_t n) 
     fputc(']', out);
 }
 
-/* Array of n strings addressed through real pointers (languages: each
-   entry is its own allocation, not a fixed-width row - see zd_options_init). */
+/**
+ * @brief Write a JSON array of n independently-allocated strings.
+ *
+ * Unlike zd_json_array(), each element is reached through its own
+ * pointer rather than a fixed-width row - the shape languages and
+ * excludes use (see zd_options_init()).
+ *
+ * @param out Output stream to write to.
+ * @param items Array of n string pointers.
+ * @param n Number of entries in items.
+ */
 static void zd_json_ptr_array(FILE *out, char *const *items, size_t n) {
     size_t i;
 
@@ -64,6 +102,17 @@ static void zd_json_ptr_array(FILE *out, char *const *items, size_t n) {
     fputc(']', out);
 }
 
+/**
+ * @brief Write o as the daemon's "generate" request JSON to out.
+ *
+ * Placeholder wire format for the not-yet-implemented daemon transport;
+ * currently invoked (commented out) from main() to print the resolved
+ * request to stdout. Emits every field of o, JSON-escaped via
+ * zd_json_string/zd_json_array/zd_json_ptr_array as appropriate.
+ *
+ * @param o Options to serialize.
+ * @param out Output stream to write the JSON object to.
+ */
 void zd_request_write(const zd_options *o, FILE *out) {
     fputs("{\n", out);
     fprintf(out, "  \"zdoc_request\": \"generate\",\n");

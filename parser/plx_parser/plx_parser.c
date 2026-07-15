@@ -20,13 +20,21 @@
 /* File parsing                                                        */
 /* ------------------------------------------------------------------ */
 
-/* Line reader over an in-memory FileBuffer. Returns the next line as a slice
- * pointing straight into buf->data - no copy, no allocation, not NUL-terminated
- * - advancing *pos past the newline. line.len is the content length excluding
- * the line terminator (the '\n' and any preceding '\r', so CRLF and LF read the
- * same). line.data is NULL once the buffer is consumed; a genuinely empty line
- * has data != NULL and len == 0. The returned data must NOT be freed - it is
- * owned by the FileBuffer. */
+/**
+ * @brief Read the next line from an in-memory FileBuffer.
+ *
+ * Returns the next line as a slice pointing straight into buf->data - no
+ * copy, no allocation, and not NUL-terminated - advancing *pos past the
+ * line terminator. The returned len excludes the line terminator itself
+ * (the newline and any preceding carriage return, so CRLF and LF input
+ * read the same). The returned data must not be freed; it is owned by buf.
+ *
+ * @param buf The in-memory file buffer to read from.
+ * @param pos Cursor into buf->data; advanced past the consumed line.
+ * @return The next line as a slice into buf->data, or { NULL, 0 } once the
+ *         buffer is fully consumed. A genuinely empty line is returned as
+ *         data != NULL, len == 0.
+ */
 static Line buf_getline(const FileBuffer *buf, size_t *pos)
 {
     Line line = { NULL, 0 };
@@ -48,6 +56,26 @@ static Line buf_getline(const FileBuffer *buf, size_t *pos)
     return line;
 }
 
+/**
+ * @brief Parse one PL/X source file and extract its doc-comment symbols.
+ *
+ * Reads path into memory and scans it line by line, recognizing three
+ * doc-comment sources: Method Prolog blocks (is_prolog_start() /
+ * is_prolog_end()), ordinary single-line comments (comment_content()), and
+ * banner lines that close a pending block. Once a doc-comment block is
+ * open, lines are fed to it via feed_doc_line(). A PROC statement or
+ * ProcEntry macro call (match_proc_start() / match_procentry()) starts
+ * capturing the procedure's signature via sig_consume(); once the
+ * signature is complete, the pending block (if any) is turned into a
+ * Symbol via block_to_symbol(), or a "no doc-comment" note is printed to
+ * stderr if there was none. Any doc-comment block still open at
+ * end-of-file is flushed the same way, with a NULL signature.
+ *
+ * @param path Path to the PL/X source file to parse.
+ * @return A newly allocated Module holding the extracted symbols, or NULL
+ *         if path could not be read (read_file_buffer() already reported
+ *         the failure to stderr).
+ */
 Module *plx_parse_file(const char *path)
 {
     FileBuffer buf = read_file_buffer(path);

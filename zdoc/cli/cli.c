@@ -3,7 +3,12 @@
 #include <stdio.h>
 #include <string.h>
 
-//function to print help message
+/**
+ * @brief Print the full --help usage text to stdout.
+ *
+ * Lists every recognized option, the supported source languages, and a
+ * pointer to the config file docs. Uses ZD_VERSION for the version line.
+ */
 static void zd_print_help(void) {
     printf(
 "zdoc %s - documentation generator for legacy and modern languages\n"
@@ -33,7 +38,13 @@ static void zd_print_help(void) {
 }
 
 
-//what ZDoc is, shown when zdoc is run with no arguments at all
+/**
+ * @brief Print the "what is ZDoc" introduction to stdout.
+ *
+ * Shown when zdoc is invoked with no arguments at all; summarizes what
+ * ZDoc does, its two modes, and its output formats, then points to
+ * --help and docs/ZDOC.md.
+ */
 static void zd_print_about(void) {
     printf(
 "ZDoc %s - documentation generator for legacy and modern languages\n"
@@ -55,8 +66,23 @@ static void zd_print_about(void) {
         ZD_VERSION);
 }
 
-//Value of an option given as "--opt=value" or "--opt value"
-
+/**
+ * @brief Resolve the value for an option given as "--opt=value" or "--opt value".
+ *
+ * Returns inline_value if the option was written in the "--opt=value"
+ * form. Otherwise consumes and returns the next argument in argv,
+ * advancing *i past it. Prints an error to stderr and returns NULL if
+ * neither is available.
+ *
+ * @param argc Total argument count.
+ * @param argv Argument vector.
+ * @param i Index of the current option in argv; advanced past the
+ *          consumed value when one is taken from argv.
+ * @param name Option name, used only for the error message.
+ * @param inline_value Value already extracted from an "--opt=value" form,
+ *                      or NULL if none.
+ * @return The resolved value, or NULL if no value was available.
+ */
 static const char *zd_take_value(int argc, char **argv, int *i, const char *name, const char *inline_value) {
     
     if(inline_value) return inline_value;
@@ -68,6 +94,29 @@ static const char *zd_take_value(int argc, char **argv, int *i, const char *name
 }
 
 
+/**
+ * @brief Parse argv into o, applying command-line overrides on top of
+ *        existing options.
+ *
+ * With no arguments at all, prints the introductory "about" text and
+ * requests exit. Recognizes --help/-h and --version as immediate-exit
+ * options. Bare (non "-") arguments are collected as source paths. All
+ * other options take a value, either inline ("--opt=value") or as the
+ * next argv entry, via zd_take_value(). The first --lang or --exclude
+ * seen on the command line clears any list already populated by the
+ * config file, so CLI lists replace rather than extend config lists;
+ * subsequent occurrences append. Fails if too many source paths are
+ * given, an option is unknown or malformed, or no source directory was
+ * given at all.
+ *
+ * @param argc Argument count, as passed to main().
+ * @param argv Argument vector, as passed to main().
+ * @param o Options struct to update in place; already holds defaults and
+ *          any zdoc.yaml/zdoc.json values.
+ * @return ZD_CLI_OK if parsing succeeded and at least one source path was
+ *         given; ZD_CLI_EXIT if --help/--version/no-args printed output
+ *         and the caller should exit 0; ZD_CLI_ERROR on any parse error.
+ */
 zd_cli_result zd_cli_parse(int argc, char **argv, zd_options *o) {
     //Lists given on the command line replace (not extend) config lists, so we clear them here.
     int cli_langs_seen = 0, cli_excludes_seen = 0;

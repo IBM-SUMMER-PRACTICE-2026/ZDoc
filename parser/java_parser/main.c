@@ -12,6 +12,16 @@
 
 #define ZDOC_JAVA_PARSER_VERSION "0.1.0"
 
+/**
+ * @brief Parse one file and print its extracted symbols, timing the parse.
+ *
+ * Calls java_parse() on path. On success, prints the resulting Module via
+ * print_module(), frees it, and reports the elapsed parse time to stderr.
+ * On failure, prints an error line to stderr instead.
+ *
+ * @param path Path to the Java source file to parse and print.
+ * @return 0 on success, 1 if java_parse() failed.
+ */
 static int emit_module(const char *path) {
     clock_t t0 = clock();
     Module *m = java_parse(path);
@@ -30,6 +40,20 @@ static int emit_module(const char *path) {
     return 0;
 }
 
+/**
+ * @brief CLI entry point for zdoc-java-parser.
+ *
+ * Enables full stdout buffering, then handles --version and --help before
+ * treating any other arguments as a list of Java source files: each is
+ * parsed and printed via emit_module(), separated by a blank line, with
+ * the process return code the bitwise OR of every file's result.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector; argv[1..] are source file paths, or a
+ *             single --version/--help flag.
+ * @return 0 on success, 1 if any file failed to parse, or 2 if no
+ *         arguments were given.
+ */
 int main(int argc, char **argv) {
     static char obuf[1 << 16];
     setvbuf(stdout, obuf, _IOFBF, sizeof obuf);

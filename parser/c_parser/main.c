@@ -15,6 +15,17 @@
 
 #define ZDOC_C_PARSER_VERSION "0.1.0"
 
+/**
+ * @brief Parse one source file and print its module to stdout.
+ *
+ * Times the call to cp_parse_file(), prints the resulting Module via
+ * print_module() (or an out-of-memory diagnostic to stderr if parsing
+ * failed), frees the module, and reports the elapsed parse time to
+ * stderr.
+ *
+ * @param path path of the source file to parse and print
+ * @return 0 on success, 1 if the module could not be parsed
+ */
 static int emit_module(const char *path)
 {
     clock_t t0 = clock();
@@ -32,6 +43,20 @@ static int emit_module(const char *path)
     return 0;
 }
 
+/**
+ * @brief CLI entry point for the C/C++ parser driver.
+ *
+ * Sets up a large stdout buffer, then handles `--version` and `--help`,
+ * or otherwise treats each argument as a source file to parse and print
+ * via emit_module(), separating successive files' output with a blank
+ * line.
+ *
+ * @param argc argument count
+ * @param argv argument vector; argv[1..] are source file paths, or
+ *             `--version`/`--help`
+ * @return 0 on success; 2 if no arguments were given; otherwise the
+ *         bitwise OR of each emit_module() call's result
+ */
 int main(int argc, char **argv)
 {
     static char obuf[1 << 16];

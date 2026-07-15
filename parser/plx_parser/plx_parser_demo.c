@@ -13,6 +13,16 @@
 #include "plx_parser.h"
 #include "../shared/parser_shared.h"
 
+/**
+ * @brief Check whether path has one of the recognized PL/X file extensions.
+ *
+ * Recognizes ".plx", ".pls", ".plas" and ".plxmac", compared
+ * case-insensitively.
+ *
+ * @param path The file path to check.
+ * @return Non-zero if path's extension is recognized, 0 otherwise
+ *         (including when path has no extension at all).
+ */
 static int has_known_extension(const char *path)
 {
     static const char *exts[] = { ".plx", ".pls", ".plas", ".plxmac" };
@@ -27,6 +37,21 @@ static int has_known_extension(const char *path)
     return 0;
 }
 
+/**
+ * @brief CLI entry point: parse each given PL/X file and print its symbols.
+ *
+ * For every argument, validates the file extension via
+ * has_known_extension(), parses the file with plx_parse_file(), prints the
+ * resulting Module to stdout via print_module(), and reports the parse
+ * time to stderr. Continues on a per-file failure rather than aborting,
+ * accumulating a non-zero exit code.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector; argv[1..argc) are the files to parse.
+ * @return 0 if every file parsed successfully, 1 if any file failed to
+ *         parse, or 2 for a usage error (no files given, or an
+ *         unsupported extension).
+ */
 int main(int argc, char **argv)
 {
     int rc = 0;

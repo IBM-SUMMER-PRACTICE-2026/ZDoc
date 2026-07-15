@@ -4,7 +4,20 @@
 #include "doc_comment.h"
 #include "util.h"
 
-//Case-insensitive "does content start with word, followed by optional whitespace then ':'". On match, sets *value_start/*value_len to the trimmed text after the colon.
+/**
+ * @brief Check whether content starts with a case-insensitive "word:" label.
+ *
+ * Matches word at the start of content, followed by optional whitespace
+ * and then a ':'. On a match, *value_start and *value_len are set to the
+ * trimmed text following the colon.
+ *
+ * @param content Text to test.
+ * @param clen Length of content in bytes.
+ * @param word Label to match at the start of content (e.g. "Method").
+ * @param value_start Set to the start of the trimmed value after the colon.
+ * @param value_len Set to the length of the trimmed value after the colon.
+ * @return 1 if content starts with the label, 0 otherwise.
+ */
 static int match_colon_label(const char *content, size_t clen, const char *word, const char **value_start, size_t *value_len) {
     size_t wlen = strlen(word);
     if(clen < wlen || strncasecmp(content, word, wlen) != 0) return 0;
@@ -16,7 +29,21 @@ static int match_colon_label(const char *content, size_t clen, const char *word,
     return 1;
 }
 
-//Case-insensitive "does content start with @tag followed by a word boundary (whitespace, ':' or end of line)". On match, *rest_off is the offset right after the tag (not yet trimmed).
+/**
+ * @brief Check whether content starts with a case-insensitive @tag.
+ *
+ * Matches tag at the start of content, requiring a word boundary right
+ * after it (whitespace, ':' or end of line) so e.g. "@param" doesn't match
+ * inside "@parameters". On a match, *rest_off is set to the offset just
+ * past the tag (not yet trimmed of following whitespace/colon).
+ *
+ * @param content Text to test.
+ * @param clen Length of content in bytes.
+ * @param tag Tag to match at the start of content, including the leading
+ *            '@' (e.g. "@param").
+ * @param rest_off Set to the offset right after the matched tag.
+ * @return 1 if content starts with the tag, 0 otherwise.
+ */
 static int match_tag(const char *content, size_t clen, const char *tag, size_t *rest_off) {
     size_t tlen = strlen(tag);
     if(clen < tlen || strncasecmp(content, tag, tlen) != 0) return 0;
@@ -34,6 +61,25 @@ typedef enum {
     FIELD_PARAM
 } Field;
 
+/**
+ * @brief Parse the text inside a Java doc comment into a Symbol.
+ *
+ * Scans content line by line, stripping doc-comment '*' prefixes and
+ * blank/divider lines. Recognizes "Method:"/"Routine:" as the symbol name,
+ * "Function:"/"Logic:" as the brief description, "@param NAME desc" (one
+ * per parameter, collected in declaration order), "@return"/"@returns" as
+ * the return description, and "@throws"/"@exception" folded into notes;
+ * any other non-blank line continues whichever field was most recently
+ * opened. out->signature, out->diagram, and out->type are left untouched
+ * (type is always NULL - no Java symbol-kind logic yet).
+ *
+ * @param content Comment body text, not including the opening or closing
+ *                comment markers.
+ * @param clen Length of content in bytes.
+ * @param out Symbol to fill in on success; left untouched on failure.
+ * @return 1 if a recognized label was found and out was filled in, 0 if
+ *         no recognized marker was present (nothing allocated survives).
+ */
 int parse_doc_comment(const char *content, size_t clen, Symbol *out) {
     Buffer name_buf = {0}, brief_buf = {0}, returns_buf = {0}, notes_buf = {0};
     InputParam *params = NULL;

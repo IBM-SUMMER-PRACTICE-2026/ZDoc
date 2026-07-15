@@ -24,8 +24,15 @@
 
 /* -------------------------------------------------------------- allocation */
 
-/* Duplicate a NUL-terminated C string (NULL tolerant). Each output string is
- * individually owned and released by the shared free_module(). */
+/**
+ * @brief Duplicate a NUL-terminated C string.
+ *
+ * NULL tolerant: returns NULL when @p s is NULL. Each output string is
+ * individually owned and released by the shared free_module().
+ *
+ * @param s string to duplicate, or NULL
+ * @return heap-allocated copy of @p s, or NULL if @p s is NULL
+ */
 static char *dupcstr(const char *s)
 {
     return s ? xstrdup(s) : NULL;
@@ -38,6 +45,17 @@ typedef struct {
     size_t n, cap;
 } sb;
 
+/**
+ * @brief Append raw bytes to a growable string buffer.
+ *
+ * Grows the buffer's capacity (doubling, plus room for a NUL terminator) as
+ * needed before copying. A no-op when @p n is 0; if realloc() fails the
+ * existing buffer is left untouched and the append is silently dropped.
+ *
+ * @param s buffer to append to
+ * @param a start of the bytes to append
+ * @param n number of bytes to append
+ */
 static void sb_put(sb *s, const char *a, size_t n)
 {
     if (!n)
@@ -56,7 +74,16 @@ static void sb_put(sb *s, const char *a, size_t n)
     s->n += n;
 }
 
-/* Append a line of text, joined to prior content with a single space. */
+/**
+ * @brief Append a line of text, joined to prior content with a single space.
+ *
+ * Does nothing when @p a is not before @p b. Otherwise inserts a single
+ * space separator before the new text if the buffer already holds content.
+ *
+ * @param s buffer to append to
+ * @param a start of the text span
+ * @param b end of the text span (exclusive)
+ */
 static void sb_join(sb *s, const char *a, const char *b)
 {
     if (a >= b)
@@ -66,8 +93,17 @@ static void sb_join(sb *s, const char *a, const char *b)
     sb_put(s, a, (size_t)(b - a));
 }
 
-/* Trim trailing whitespace and hand the buffer to the caller (who now owns
- * it and must free()). Returns NULL for empty content. */
+/**
+ * @brief Finalise a growable string and hand ownership to the caller.
+ *
+ * Trims trailing whitespace, NUL-terminates the buffer, and transfers
+ * ownership of the heap allocation to the caller (who must free() it).
+ * Resets @p s to empty. Frees the buffer and returns NULL when the
+ * remaining content is empty.
+ *
+ * @param s buffer to finalise
+ * @return owned heap string, or NULL if @p s held no content
+ */
 static const char *sb_done(sb *s)
 {
     while (s->n && isspace((unsigned char)s->d[s->n - 1]))
@@ -121,12 +157,31 @@ typedef struct {
 
 #define SPAN_OK(x) ((x).s != NULL && (x).e > (x).s)
 
+/**
+ * @brief Test whether a span is exactly equal to a literal string.
+ *
+ * @param sp  span to compare
+ * @param lit NUL-terminated literal to compare against
+ * @return nonzero when @p sp is non-null and byte-for-byte equal to @p lit
+ */
 static int spis(span sp, const char *lit)
 {
     size_t n = strlen(lit);
     return sp.s && (size_t)(sp.e - sp.s) == n && memcmp(sp.s, lit, n) == 0;
 }
 
+/**
+ * @brief Resolve the source line number at a scan position.
+ *
+ * Lazily counts newlines from the parser's cached anchor position up to
+ * @p q via memchr(), then advances the anchor to @p q so a later query
+ * only scans the gap since this call. Assumes @p q is at or after the
+ * current anchor.
+ *
+ * @param st parser state holding the line-counting anchor
+ * @param q  position to resolve the line number for
+ * @return 1-based line number of @p q
+ */
 static uint32_t line_at(P *st, const char *q)
 {
     const char *s = st->anchor;
@@ -145,12 +200,24 @@ static uint32_t line_at(P *st, const char *q)
 
 /* --------------------------------------------------------------- char sets */
 
+/**
+ * @brief Test whether a byte can start a C/C++ identifier.
+ *
+ * @param c byte to classify
+ * @return nonzero if @p c is a letter, underscore, or a non-ASCII byte
+ */
 static int is_id_start(unsigned char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
            c >= 0x80;
 }
 
+/**
+ * @brief Test whether a byte can appear inside a C/C++ identifier.
+ *
+ * @param c byte to classify
+ * @return nonzero if @p c is a valid identifier-start byte or a digit
+ */
 static int is_id_char(unsigned char c)
 {
     return is_id_start(c) || (c >= '0' && c <= '9');
@@ -172,6 +239,16 @@ static const char *const reject_kw[] = {
     "__typeof__",
 };
 
+/**
+ * @brief Test whether a span names one of the reserved words in
+ *        reject_kw[].
+ *
+ * Used to reject keywords that can never be the identifier naming a
+ * function, type, or variable.
+ *
+ * @param sp span to test
+ * @return nonzero if @p sp matches an entry in reject_kw[]
+ */
 static int is_kw(span sp)
 {
     size_t n = (size_t)(sp.e - sp.s);
@@ -183,7 +260,20 @@ static int is_kw(span sp)
     return 0;
 }
 
-/* Statement-macro invocation at file scope, e.g. G_DEFINE_TYPE(...);  */
+/**
+ * @brief Detect a statement-macro invocation at file scope, e.g.
+ *        G_DEFINE_TYPE(...);
+ *
+ * A name is treated as macro-ish when it begins the statement, is at
+ * least two characters long, and consists solely of uppercase letters,
+ * digits, and underscores - the SCREAMING_CASE convention used by such
+ * macros.
+ *
+ * @param nm         candidate identifier span
+ * @param stmt_start start of the current statement
+ * @return nonzero if @p nm looks like a macro invocation rather than a
+ *         function name
+ */
 static int is_macroish(span nm, const char *stmt_start)
 {
     if (nm.s != stmt_start || (size_t)(nm.e - nm.s) < 2)
@@ -196,6 +286,15 @@ static int is_macroish(span nm, const char *stmt_start)
 
 /* -------------------------------------------------------------- low skips */
 
+/**
+ * @brief Skip over a slash-star block comment.
+ *
+ * Assumes the cursor is positioned just past the opening slash-star.
+ * Advances the cursor past the matching star-slash, or to the end of
+ * the buffer if the comment is unterminated.
+ *
+ * @param st parser state; st->cursor is advanced past the comment
+ */
 static void skip_block(P *st) /* p is just past the opening slash-star */
 {
     const char *p = st->cursor, *end = END(st);
@@ -213,6 +312,17 @@ static void skip_block(P *st) /* p is just past the opening slash-star */
     }
 }
 
+/**
+ * @brief Skip over a slash-slash line comment.
+ *
+ * Assumes the cursor is at the first slash. Honours backslash line
+ * continuations (including a trailing carriage return) so an escaped
+ * newline does not end the comment. Leaves the terminating newline
+ * itself in place for the whitespace skipper to consume.
+ *
+ * @param st parser state; st->cursor is advanced to just before the
+ *           terminating newline (or to the end of the buffer)
+ */
 static void skip_line_comment(P *st) /* p at first slash */
 {
     const char *p = st->cursor, *end = END(st);
@@ -229,6 +339,18 @@ static void skip_line_comment(P *st) /* p at first slash */
     st->cursor = p; /* leave the newline for the whitespace skipper */
 }
 
+/**
+ * @brief Skip over a string literal, including C++ raw strings.
+ *
+ * Assumes the cursor is at the opening quote. When the byte before the
+ * quote is 'R', treats the literal as a C++ raw string
+ * R"delim(...)delim" and scans for the matching delim close sequence.
+ * Otherwise scans a normal quoted string honouring backslash escapes;
+ * tolerant of an unterminated literal, which is treated as ending at
+ * the line break.
+ *
+ * @param st parser state; st->cursor is advanced past the literal
+ */
 static void skip_string(P *st) /* p at opening quote */
 {
     const char *p = st->cursor, *end = END(st);
@@ -270,6 +392,15 @@ static void skip_string(P *st) /* p at opening quote */
     st->cursor = p;
 }
 
+/**
+ * @brief Skip over a character literal.
+ *
+ * Assumes the cursor is at the opening quote. Honours backslash escapes;
+ * tolerant of an unterminated literal, which is treated as ending at the
+ * line break.
+ *
+ * @param st parser state; st->cursor is advanced past the literal
+ */
 static void skip_char(P *st) /* p at opening quote */
 {
     const char *p = st->cursor + 1, *end = END(st);
@@ -288,6 +419,18 @@ static void skip_char(P *st) /* p at opening quote */
     st->cursor = p;
 }
 
+/**
+ * @brief Skip a preprocessor directive to its logical end of line.
+ *
+ * Assumes the cursor is at the leading '#'. Honours backslash line
+ * continuations, and skips over any slash-star or slash-slash comments
+ * encountered within the directive (so, e.g., an apostrophe inside a
+ * `#error` message's comment cannot be mistaken for a character
+ * literal by callers).
+ *
+ * @param st parser state; st->cursor is advanced to the logical end of
+ *           the directive line
+ */
 static void skip_pp_line(P *st) /* p at '#'; stops at the logical EOL */
 {
     const char *p = st->cursor, *end = END(st);
@@ -318,6 +461,19 @@ static void skip_pp_line(P *st) /* p at '#'; stops at the logical EOL */
 
 /* Fast body skipper: everything between { } that isn't a declaration we
  * care about. This loop sees the majority of the input bytes. */
+/**
+ * @brief Skip a matched brace-delimited body, e.g. a function definition.
+ *
+ * Assumes the cursor is at the opening '{'. Scans forward using a
+ * 256-entry lookup table so only "interesting" bytes ('{', '}', '"',
+ * '\'', '/', '#') interrupt a tight scan; tracks brace nesting depth,
+ * skips over string and character literals (recognising the C++14
+ * digit-separator form 1'000'000 so it isn't mistaken for a char
+ * literal), skips comments, and skips preprocessor lines nested inside
+ * the body. Returns once the matching closing brace has been consumed.
+ *
+ * @param st parser state; st->cursor is advanced past the closing '}'
+ */
 static void skip_body(P *st) /* p at '{' */
 {
     static const unsigned char interesting[256] = {
@@ -372,6 +528,17 @@ static void skip_body(P *st) /* p at '{' */
 }
 
 /* Whitespace + comments inside a statement; leaves pending doc alone. */
+/**
+ * @brief Skip whitespace and ordinary comments within a statement.
+ *
+ * Unlike ws_and_docs(), this does not track doc comments - any comment
+ * encountered here is discarded without affecting the parser's pending
+ * doc-comment state, since it appears mid-statement rather than before
+ * a declaration.
+ *
+ * @param st parser state; st->cursor is advanced past whitespace and
+ *           comments
+ */
 static void ws_quiet(P *st)
 {
     const char *end = END(st);
@@ -392,6 +559,16 @@ static void ws_quiet(P *st)
 /* A doc block carrying @file/@mainpage documents the module, not the next
  * declaration; ZDoc has no module-level doc concept, so such a block is
  * simply discarded rather than mis-attached to whatever follows it. */
+/**
+ * @brief Detect a module-level doc block (@file or @mainpage).
+ *
+ * A doc block carrying @file/@mainpage documents the module rather than
+ * the declaration that follows it; ZDoc has no module-level doc concept,
+ * so callers discard such a block instead of mis-attaching it.
+ *
+ * @param d doc comment span to inspect
+ * @return nonzero if @p d contains an @file or @mainpage tag
+ */
 static int is_filedoc_block(docref d)
 {
     for (const char *q = d.s; q + 5 <= d.e; q++) {
@@ -408,6 +585,21 @@ static int is_filedoc_block(docref d)
  * Doc forms: slash-star-star, slash-star-bang blocks and runs of /// or //!
  * lines. A plain comment between a doc block and the declaration breaks
  * the association. */
+/**
+ * @brief Skip whitespace and comments at declaration scope, tracking
+ *        doc comments.
+ *
+ * Recognises slash-star-star and slash-star-bang block doc comments and
+ * runs of consecutive slash-slash-slash or slash-slash-bang line doc
+ * comments, storing the most recent one as st->doc so a following
+ * declaration can claim it. A plain (non-doc) comment clears any
+ * pending doc, breaking its association with whatever declaration
+ * follows. Blocks identified by is_filedoc_block() as module-level
+ * documentation are discarded rather than attached.
+ *
+ * @param st parser state; st->cursor is advanced past the run of
+ *           whitespace and comments, and st->doc is updated
+ */
 static void ws_and_docs(P *st)
 {
     const char *end = END(st);
@@ -454,6 +646,14 @@ static void ws_and_docs(P *st)
 
 /* ----------------------------------------------------------- doc parsing */
 
+/**
+ * @brief Case-insensitively compare a span against a literal tag name.
+ *
+ * @param s   start of the candidate tag text (no leading '@'/'\\')
+ * @param n   length of the candidate tag text
+ * @param lit lowercase literal to compare against
+ * @return nonzero if @p s (length @p n) equals @p lit ignoring case
+ */
 static int tag_is(const char *s, size_t n, const char *lit)
 {
     size_t ln = strlen(lit);
@@ -472,6 +672,25 @@ typedef struct {
 /* Parse the doc-comment text into `out`. Returns 1 when the doc has any
  * content worth attaching to the symbol, 0 for an empty doc block. Callers
  * must have already ruled out @file/@mainpage blocks via is_filedoc_block. */
+/**
+ * @brief Parse a raw doc-comment span into structured symbol
+ *        documentation.
+ *
+ * Strips the block or line-comment markers, then walks the text
+ * line by line, dispatching on @brief/@short, @param/@tparam,
+ * @return/@returns/@result/@retval, and @note/@details/@remark/@remarks
+ * tags (case-insensitively); unrecognised tags and their continuation
+ * text are folded into the notes field. Untagged text before the first
+ * tag becomes the brief description, and blank lines start a new
+ * paragraph, defaulting further untagged text to notes. Callers must
+ * have already ruled out @file/@mainpage blocks via is_filedoc_block().
+ *
+ * @param d   doc comment span to parse
+ * @param out symbol filled with the parsed description, output, notes,
+ *            and input (parameter) fields
+ * @return 1 when the doc has any content worth attaching to the
+ *         symbol, 0 for an empty doc block
+ */
 static int parse_doc_text(docref d, Symbol *out)
 {
     const char *s = d.s, *e = d.e;
@@ -617,6 +836,18 @@ static int parse_doc_text(docref d, Symbol *out)
 
 /* Copy [a,b) collapsing whitespace runs and stripping comments. Returns an
  * owned heap string, or NULL on allocation failure. */
+/**
+ * @brief Build a normalised signature string from a source span.
+ *
+ * Copies [a,b), collapsing runs of whitespace to a single space,
+ * stripping slash-star and slash-slash comments, and dropping
+ * backslash-newline line continuations.
+ *
+ * @param a start of the source span
+ * @param b end of the source span (exclusive)
+ * @return owned heap string holding the normalised signature, or NULL
+ *         on allocation failure
+ */
 static char *make_sig(const char *a, const char *b)
 {
     char *out = (char *)malloc((size_t)(b - a) + 1);
@@ -661,6 +892,23 @@ static char *make_sig(const char *a, const char *b)
     return out;
 }
 
+/**
+ * @brief Emit a symbol into the module being built.
+ *
+ * Allocates a new Symbol in st->res and fills its kind, line number,
+ * name, and normalised signature (via make_sig()). If @p doc holds a
+ * valid pending doc comment, parses it (parse_doc_text()) and attaches
+ * the resulting description/output/notes/parameters to the symbol,
+ * then marks @p doc consumed.
+ *
+ * @param st   parser state supplying the target module
+ * @param k    symbol kind being emitted
+ * @param nm   span of the symbol's name
+ * @param ss   start of the symbol's signature span
+ * @param se   end of the symbol's signature span (exclusive)
+ * @param line source line number of the symbol
+ * @param doc  pending doc comment to attach and consume, if valid
+ */
 static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
                  const char *se, uint32_t line, docref *doc)
 {
@@ -688,6 +936,21 @@ static void emit(P *st, cp_symbol_kind k, span nm, const char *ss,
 static void parse_decl_scope(P *st, int nested);
 
 /* #directives at declaration scope. #define becomes a MACRO symbol. */
+/**
+ * @brief Handle a preprocessor directive at declaration scope.
+ *
+ * Assumes the cursor is at the leading '#'. A `#define` becomes a
+ * CP_SYM_MACRO symbol: function-like macros (name immediately followed
+ * by '(') capture their full parameter list as part of the signature,
+ * while object-like macros are only emitted when a doc comment is
+ * pending (this incidentally drops undocumented include guards); long
+ * object-like replacement lists are truncated to 160 bytes since they
+ * add no documentation value. Any other directive is scanned past
+ * without emitting a symbol; `#include` additionally clears a pending
+ * doc comment so it cannot leak onto an unrelated later declaration.
+ *
+ * @param st parser state; st->cursor is advanced past the directive
+ */
 static void handle_pp(P *st)
 {
     const char *hash = st->cursor;
@@ -750,6 +1013,34 @@ static void handle_pp(P *st)
 /* One declaration-scope statement: everything up to ';', a matched body,
  * or the enclosing '}'. This is where functions, prototypes, types and
  * documented variables are recognized. */
+/**
+ * @brief Parse one declaration-scope statement.
+ *
+ * Scans forward from the current cursor position, consuming everything
+ * up to a terminating ';', a matched '{'...'}' body, or the enclosing
+ * '}', and classifies what it saw to decide whether (and how) to emit a
+ * symbol via emit(). Along the way it tracks: the last identifier and
+ * candidate declarator name; parenthesis/bracket nesting; whether the
+ * statement looks function-ish (identifier followed by a balanced
+ * argument list); initializer ('=') detection for variables; leading
+ * typedef/struct/class/union/enum/namespace/using/extern keywords and
+ * their tag name; qualified names (Foo::bar) and destructors (~Foo);
+ * operator-overload identifiers; constructor member-initializer lists;
+ * and access-specifier labels (public:/private:/protected:), which
+ * return early so a following member's doc comment is still tracked by
+ * the caller. On reaching '{' at top level it distinguishes a function
+ * body (emits CP_SYM_FUNCTION and skips the body), a record/enum body
+ * (emits CP_SYM_TYPE and, for records, recurses into parse_decl_scope()
+ * for members), a namespace/extern "C" body (recurses without
+ * emitting), and bodies that are not declarations of interest (skipped
+ * via skip_body()). On reaching ';' at top level it emits the
+ * appropriate symbol kind - typedef, prototype, forward-declared
+ * record/enum, or documented variable - depending on what was seen.
+ *
+ * @param st parser state; st->cursor is advanced past the statement,
+ *           and any pending doc comment is either consumed by an
+ *           emitted symbol or dropped
+ */
 static void parse_statement(P *st)
 {
     docref doc = st->doc;
@@ -1047,6 +1338,22 @@ static void parse_statement(P *st)
     }
 }
 
+/**
+ * @brief Parse a sequence of declarations within one scope.
+ *
+ * Repeatedly skips whitespace and doc comments (ws_and_docs()) then
+ * dispatches on the next byte: a closing '}' ends a nested scope (or,
+ * at top level, is treated as a stray brace that clears any pending
+ * doc); a leading '#' is handed to handle_pp(); a stray ';' just
+ * clears any pending doc; anything else is parsed as one declaration
+ * via parse_statement(). Used both for the top-level scan and,
+ * recursively, for the body of a struct/class/union or namespace.
+ *
+ * @param st     parser state; st->cursor is advanced past the scope
+ * @param nested nonzero when parsing a nested scope (struct/namespace
+ *               body) that should stop at its own closing '}'; zero
+ *               for the top-level file scope
+ */
 static void parse_decl_scope(P *st, int nested)
 {
     st->depth++;
@@ -1082,6 +1389,20 @@ static void parse_decl_scope(P *st, int nested)
  * so nothing references the buffer once the pass returns and the caller can
  * release it immediately. This is what keeps a parsed module from pinning a
  * whole file-sized allocation. */
+/**
+ * @brief Run the single-pass scan over a whole source buffer.
+ *
+ * Initialises parser state anchored at the start of @p fb (skipping a
+ * leading UTF-8 BOM, if present), then parses the entire buffer as one
+ * top-level declaration scope via parse_decl_scope(). Every symbol
+ * string written into @p m is an owned heap copy, so nothing in @p m
+ * references @p fb once this returns and the caller may release the
+ * buffer immediately. Shrinks @p m's symbol array to fit before
+ * returning.
+ *
+ * @param m  module to populate with parsed symbols
+ * @param fb source buffer to scan
+ */
 static void run_scan(Module *m, const FileBuffer *fb)
 {
     P st = {0};
@@ -1098,6 +1419,16 @@ static void run_scan(Module *m, const FileBuffer *fb)
     module_shrink_to_fit(m);
 }
 
+/**
+ * @brief Read and parse a source file into a new Module.
+ *
+ * Reads @p path into memory, runs the single-pass scan (run_scan()),
+ * and releases the file buffer before returning.
+ *
+ * @param path path of the source file to parse
+ * @return heap-allocated Module the caller releases with
+ *         free_module(), or NULL if the file could not be read
+ */
 Module *cp_parser(const char *path)
 {
     FileBuffer fb = read_file_buffer(path);
@@ -1110,6 +1441,13 @@ Module *cp_parser(const char *path)
     return m;
 }
 
+/**
+ * @brief Get the human-readable name of a symbol kind.
+ *
+ * @param k symbol kind to name
+ * @return static string naming @p k (e.g. "function", "macro"), or
+ *         "unknown" for an unrecognised value
+ */
 const char *cp_symbol_kind_name(cp_symbol_kind k)
 {
     switch (k) {
@@ -1122,6 +1460,17 @@ const char *cp_symbol_kind_name(cp_symbol_kind k)
     return "unknown";
 }
 
+/**
+ * @brief Parse a source file, never returning NULL.
+ *
+ * Wraps cp_parser(): on a parse/IO error (already reported to stderr by
+ * cp_parser()) returns a freshly initialised empty Module instead of
+ * NULL, so callers can always assume a valid Module.
+ *
+ * @param path path of the source file to parse
+ * @return heap-allocated Module the caller releases with
+ *         free_module(); empty (symbolCount 0) if parsing failed
+ */
 Module *cp_parse_file(const char *path)
 {
     Module *m = cp_parser(path);
