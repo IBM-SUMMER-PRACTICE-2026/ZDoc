@@ -67,6 +67,20 @@
     #define DIAGRAM_HEADER_LABEL_LEN 8
 
 
+/**
+ * @brief Build the full prompt sent to Bob for one module.
+ *
+ * Concatenates the fixed instructions, the file path to read, and one
+ * "line N: name" entry per symbol in module, into a single heap-allocated
+ * buffer sized up front from PROMPT_INSTRUCTIONS_LEN and friends.
+ *
+ * @param path Path of the source file Bob should read.
+ * @param module Module whose symbols are listed as functions to diagram.
+ * @param prompt Receives the heap-allocated prompt string on success;
+ *               caller must free() it.
+ * @return ZDOC_OK on success, or ZDOC_OUT_OF_MEMORY if the buffer could
+ *         not be allocated.
+ */
 enum ZDoc_Error build_bob_prompt(const char * path, Module * module, char ** prompt) {
     size_t cap = PROMPT_INSTRUCTIONS_LEN +
                  FILE_TO_READ_LABEL_LEN +
@@ -95,6 +109,20 @@ enum ZDoc_Error build_bob_prompt(const char * path, Module * module, char ** pro
 }
 
 
+/**
+ * @brief Orchestrate one module's AI diagram pass: prompt, call, staple.
+ *
+ * Builds the prompt via build_bob_prompt(), sends it to bob_cli through
+ * bob_call(), then hands the raw response to append_diagrams() to staple
+ * each returned flowchart onto its matching symbol.
+ *
+ * @param path Path of the source file being diagrammed, forwarded into
+ *             the prompt.
+ * @param module Module whose symbols receive diagrams on success.
+ * @param bob_cli Command used to invoke the Bob CLI subprocess.
+ * @return ZDOC_OK on success, or the first ZDoc_Error encountered from
+ *         prompt building, the Bob call, or diagram stapling.
+ */
 enum ZDoc_Error bob_client(const char * path, Module * module, char * bob_cli) {
     // Build the prompt
     char * prompt = NULL;
@@ -124,6 +152,23 @@ enum ZDoc_Error bob_client(const char * path, Module * module, char * bob_cli) {
     return ZDOC_OK;
 }
 
+/**
+ * @brief Run bob_cli as a subprocess, write prompt to its stdin, and read
+ *        its full stdout back.
+ *
+ * Opens a fresh pipe pair per call via open_pipes_bob_comunication(), so
+ * each invocation spawns and tears down its own one-shot Bob process (see
+ * bob_write_message()/read_bob_message() for the EOF-driven protocol this
+ * relies on).
+ *
+ * @param prompt Prompt text to send on the subprocess's stdin.
+ * @param response Receives the heap-allocated response string on success;
+ *                  caller must free() it.
+ * @param response_len Receives the length of *response on success.
+ * @param bob_cli Command used to invoke the Bob CLI subprocess.
+ * @return ZDOC_OK on success, or ZDOC_OUT_OF_MEMORY if reading the
+ *         response failed.
+ */
 enum ZDoc_Error bob_call(const char * prompt, char ** response, size_t * response_len, char * bob_cli) {
     *response = NULL;
     *response_len = 0;
@@ -143,10 +188,21 @@ enum ZDoc_Error bob_call(const char * prompt, char ** response, size_t * respons
     return ZDOC_OK;
 }
 
-/* Bob's response sometimes wraps the flowchart in a markdown code fence
- * (```mermaid ... ```) despite the prompt asking for no prose. Strip a
- * leading fence line (```, optionally followed by "mermaid") and a
- * trailing ``` line so Mermaid.js never sees fence syntax as diagram text. */
+/**
+ * @brief Strip a leading/trailing markdown code fence from a diagram slice.
+ *
+ * Bob's response sometimes wraps the flowchart in a markdown code fence
+ * (```mermaid ... ```) despite the prompt asking for no prose. Skips any
+ * blank line(s) left between the "## line N:" header and the fence, then
+ * trims a leading fence line (```, optionally followed by "mermaid") and
+ * a trailing ``` line in place, so Mermaid.js never sees fence syntax as
+ * diagram text.
+ *
+ * @param diagram In/out pointer to the start of the diagram slice;
+ *                updated in place to the trimmed start.
+ * @param diagram_len In/out length of the diagram slice; updated in place
+ *                     to the trimmed length.
+ */
 static void strip_mermaid_fence(const char ** diagram, size_t * diagram_len) {
     const char * start = *diagram;
     const char * end = start + *diagram_len;
@@ -189,6 +245,19 @@ static void strip_mermaid_fence(const char ** diagram, size_t * diagram_len) {
     *diagram_len = (size_t)(end - start);
 }
 
+/**
+ * @brief Staple one diagram onto a symbol, replacing any diagram it had.
+ *
+ * Strips a surrounding markdown fence via strip_mermaid_fence() before
+ * copying, so symbol->diagram always holds bare Mermaid source.
+ *
+ * @param diagram Start of the diagram text slice (not necessarily
+ *                NUL-terminated).
+ * @param diagram_len Length of the diagram text slice in bytes.
+ * @param symbol Symbol whose diagram field is replaced.
+ * @return ZDOC_OK on success, or ZDOC_OUT_OF_MEMORY if the copy could not
+ *         be allocated.
+ */
 enum ZDoc_Error append_diagram_to_symbol(const char * diagram, size_t diagram_len, Symbol * symbol) {
     strip_mermaid_fence(&diagram, &diagram_len);
 
@@ -202,6 +271,23 @@ enum ZDoc_Error append_diagram_to_symbol(const char * diagram, size_t diagram_le
     return ZDOC_OK;
 }
 
+/**
+ * @brief Split Bob's full response into per-symbol diagrams and staple
+ *        each one to its matching symbol.
+ *
+ * Scans response for successive "## line N:" headers; the text between
+ * one header and the next (or the end of the response) is treated as
+ * that function's diagram and handed to append_diagram_to_symbol() for
+ * the symbol whose line matches N. Headers with no matching symbol line
+ * are skipped.
+ *
+ * @param response Full raw response text from bob_call().
+ * @param response_len Length of response in bytes.
+ * @param module Module whose symbols receive diagrams by matching line
+ *               number.
+ * @return ZDOC_OK on success, or the first ZDoc_Error encountered from
+ *         append_diagram_to_symbol().
+ */
 enum ZDoc_Error append_diagrams(const char * response, size_t response_len, Module * module) {
     const char * response_end = response + response_len;
     const char * cursor = response;
