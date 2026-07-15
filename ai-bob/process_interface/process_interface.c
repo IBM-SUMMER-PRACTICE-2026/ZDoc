@@ -14,7 +14,7 @@ void create_process(const char* bob_cli, h in_Rd, h in_Wd, h out_Rd, h out_Wd) {
     si.hStdError  = GetStdHandle(STD_ERROR_HANDLE);
 
     char cmd[1024];
-    snprintf(cmd, sizeof cmd, "\"%s\" -o text -y", bob_cli);
+    snprintf(cmd, sizeof cmd, "cmd.exe /c \"%s\" -o text -y", bob_cli);
 
     CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
 
