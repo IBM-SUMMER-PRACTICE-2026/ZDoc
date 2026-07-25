@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   RELEASE_REPO: ${{ vars.RELEASE_REPO }}
   GITOPS_BRANCH: ${{ vars.GITOPS_BRANCH || 'release' }}
@@ -180,15 +184,26 @@ jobs:
   # ---------------------------------------------------------------------------
   # Assemble every platform's binary under dist/<tag>/ (one file per OS,
   # distinctly named) and publish that folder to the GitOps repo, alongside
-  # whatever earlier versions are already there.
+  # whatever earlier versions are already there. The GitOps repo must already
+  # exist - this job checks for it and fails the run if it's missing, it will
+  # never create the repo itself.
   # ---------------------------------------------------------------------------
   publish:
     needs: [check-tag, build, build-macos]
     runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 10
     env:
-      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       RELEASE_TAG: ${{ needs.check-tag.outputs.tag }}
     steps:
+      - name: Generate short-lived release token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ vars.RELEASE_REPO_NAME }}
+
       - name: Download all platform artifacts
         uses: actions/download-artifact@v4
         with:
@@ -215,37 +230,26 @@ jobs:
           done
           ls -la "dist/$RELEASE_TAG"
 
-      # Ensure the GitOps repo exists, creating it (under its owner) if this
-      # is the very first release.
-      - name: Ensure the GitOps repo exists
+      # The GitOps repo must already exist. This does NOT create it - if it's
+      # missing, the run fails here so a release is never silently skipped or
+      # pushed somewhere unexpected.
+      - name: Verify the GitOps repo exists
         run: |
           : "${RELEASE_REPO:?set the RELEASE_REPO repository variable to owner/name}"
           code=$(curl -sS -o /dev/null -w '%{http_code}' \
-              -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$RELEASE_REPO")
           if [ "$code" = "200" ]; then
-            echo "GitOps repo $RELEASE_REPO already exists."
+            echo "GitOps repo $RELEASE_REPO exists."
             exit 0
           fi
-          if [ "$code" != "404" ]; then
-            echo "unexpected status $code querying $RELEASE_REPO" >&2
+          if [ "$code" = "404" ]; then
+            echo "GitOps repo $RELEASE_REPO does not exist. Create it manually before releasing." >&2
             exit 1
           fi
-          owner=${RELEASE_REPO%%/*}
-          name=${RELEASE_REPO#*/}
-          echo "GitOps repo $RELEASE_REPO missing - creating it."
-          # Try the org endpoint first; fall back to the token owner's repos.
-          curl -sS -f -X POST \
-              -H "Authorization: Bearer $RELEASE_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/orgs/$owner/repos" \
-              -d "{\"name\":\"$name\",\"private\":true,\"auto_init\":false}" >/dev/null 2>&1 \
-          || curl -sS -f -X POST \
-              -H "Authorization: Bearer $RELEASE_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/user/repos" \
-              -d "{\"name\":\"$name\",\"private\":true,\"auto_init\":false}" >/dev/null
+          echo "unexpected status $code querying $RELEASE_REPO" >&2
+          exit 1
 
       # Clone whatever is already on the GitOps branch (so earlier versions'
       # folders survive), layer this release's dist/<tag>/ on top, and
@@ -253,7 +257,7 @@ jobs:
       # not replacing it.
       - name: Publish dist/<tag>/ to the GitOps repo
         run: |
-          remote="https://x-access-token:${RELEASE_TOKEN}@github.com/$RELEASE_REPO.git"
+          remote="https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/$RELEASE_REPO.git"
           work=$(mktemp -d)
 
           if git clone -q --branch "$GITOPS_BRANCH" --single-branch "$remote" "$work" 2>/dev/null; then
@@ -267,7 +271,9 @@ jobs:
 
           cp -R dist/. "$work/"
           git -C "$work" add -A
-          git -C "$work" -c user.name="zdoc-ci" -c user.email="ci@zdoc.local" \
+          git -C "$work" \
+              -c user.name="zdoc-release-publisher[bot]" \
+              -c user.email="${{ steps.app-token.outputs.app-id }}+zdoc-release-publisher[bot]@users.noreply.github.com" \
               commit -q -m "Release $RELEASE_TAG" --allow-empty
           git -C "$work" push origin "$GITOPS_BRANCH"
 
