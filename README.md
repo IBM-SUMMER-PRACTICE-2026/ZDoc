@@ -4,21 +4,88 @@
 [![Language: C](https://img.shields.io/badge/language-C-00599C.svg)](zdoc)
 [![Prebuilt binaries](https://img.shields.io/badge/binaries-ZDoc--releases-blue.svg)](https://github.com/IBM-SUMMER-PRACTICE-2026/ZDoc-releases)
 
-ZDoc is a documentation generation tool designed to extract and present structured
-documentation from source files written in **PL/X**, **PLAS**, **C**, **C++**, **Java**,
-**Assembler**, and **Pascal**. It operates similarly to Doxygen or JavaDoc, but is
-purpose-built for mainframe and mixed-language codebases.
+There is effectively no actively maintained, open-source documentation generator for
+**PL/X**, **PLAS**, or mainframe **Assembler** — ZDoc is one. It also handles **C**,
+**C++**, **Java**, and **Pascal** in the same tool, extracting per-symbol
+documentation (signature, parameters, returns, cross-references) straight from doc
+comments in the source and rendering it as browsable Markdown or a self-contained
+HTML site — in the spirit of Doxygen or JavaDoc, but built for mixed legacy/modern
+mainframe codebases. An optional **AI Assisted** mode calls the Bob CLI to add a brief
+Mermaid block diagram for each documented function.
 
-Each source module is rendered as an expandable node in the output, with per-symbol
-signatures, parameters, return values, and cross-references pulled straight from doc
-comments in the source. An optional **AI Assisted** mode calls the Bob CLI to add a
-brief Mermaid block diagram for each documented function.
+## Quick look
+
+This is real, unedited output from the current build — no mockup. The input is an
+actual procedure from [`docs/student_grades.plx`](docs/student_grades.plx), written in
+the mainframe-style banner-comment convention documented in
+[`docs/plx-doccomment-convention.md`](docs/plx-doccomment-convention.md):
+
+```plx
+/*  Title: ADD_STUDENT:                                         @L0A*/
+/*                                                              @L0A*/
+/*  Logic: Add a new student to the system                      @L0A*/
+/*                                                              @L0A*/
+/*  Input: ID, Name, Year                                       @L0A*/
+/*         Where ID is:   1) Fixed(31) number                   @L0A*/
+/*         Where Name is: 1) A character array, max length 30   @L0A*/
+/*         Where Year is: 1) Fixed(31) number                   @L0A*/
+/*                                                              @L0A*/
+/*  Output: Return code - 0  - RC_SUCCESS                       @L0A*/
+/*                        12 - RC_ARRAY_FULL                    @L0A*/
+/********************************************************************/
+ADD_STUDENT: PROC(ID, NAME, YEAR) RETURNS(FIXED(31));
+```
+
+```sh
+zdoc --mode offline --output-format md --title "Student Grades" ./docs
+```
+
+produces:
+
+````md
+<details>
+<summary><strong>ADD_STUDENT</strong> — Add a new student to the system</summary>
+
+**Signature**
+```plx
+ADD_STUDENT: PROC(ID, NAME, YEAR) RETURNS(FIXED(31));
+```
+
+**Parameters**
+
+| Name | Description |
+|------|-------------|
+| ID | Fixed(31) number |
+| Name | A character array with maximum length of 30 |
+| Year | Fixed(31) number |
+
+**Returns**
+Return code - 0  - RC_SUCCESS 12 - RC_ARRAY_FULL
+
+</details>
+````
+
+The same offline path works today for C and Java sources too (Doxygen-style `/** */`
+comments) — see [Supported languages](#supported-languages) for what's next.
+
+## Why ZDoc
+
+| | ZDoc | Doxygen | JavaDoc |
+|---|---|---|---|
+| PL/X, PLAS, mainframe Assembler | ✅ | ❌ | ❌ |
+| C, C++, Java, Pascal | ✅ | C/C++ (+ more via config) | Java only |
+| Offline by default, no network calls | ✅ | ✅ | ✅ |
+| AI-assisted design diagrams | ✅ `--mode ai`, Mermaid | ❌ | ❌ |
+| Output formats | Markdown + self-contained HTML | HTML, LaTeX, man, … | HTML |
+| License | MIT | GPL-2.0 | JDK-bundled |
 
 > **Specification:** [`docs/ZDOC.md`](docs/ZDOC.md) is the source of truth for this
 > project (see [`AGENTS.md`](AGENTS.md)). If anything here conflicts with `/docs`, `/docs` wins.
 
 ## Contents
 
+- [Quick look](#quick-look)
+- [Why ZDoc](#why-zdoc)
 - [Supported languages](#supported-languages)
 - [Operating modes](#operating-modes)
 - [Installation](#installation)
