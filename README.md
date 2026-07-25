@@ -5,13 +5,20 @@
 [![Prebuilt binaries](https://img.shields.io/badge/binaries-ZDoc--releases-blue.svg)](https://github.com/IBM-SUMMER-PRACTICE-2026/ZDoc-releases)
 
 There is effectively no actively maintained, open-source documentation generator for
-**PL/X**, **PLAS**, or mainframe **Assembler** — ZDoc is one. It also handles **C**,
-**C++**, **Java**, and **Pascal** in the same tool, extracting per-symbol
-documentation (signature, parameters, returns, cross-references) straight from doc
-comments in the source and rendering it as browsable Markdown or a self-contained
-HTML site — in the spirit of Doxygen or JavaDoc, but built for mixed legacy/modern
-mainframe codebases. An optional **AI Assisted** mode calls the Bob CLI to add a brief
-Mermaid block diagram for each documented function.
+**PL/X** — ZDoc is one, and it handles **C**, **C++**, and **Java** in the same tool,
+extracting per-symbol documentation (signature, parameters, returns, cross-references)
+straight from doc comments in the source and rendering it as browsable Markdown or a
+self-contained HTML site — in the spirit of Doxygen or JavaDoc, but built for mixed
+legacy/modern mainframe codebases. An optional **AI Assisted** mode calls the Bob CLI
+to add a brief Mermaid block diagram for each documented function.
+
+The parser → extractor → renderer pipeline is split into small, standalone modules on
+purpose (see [Repository layout](#repository-layout)): a new source language is a new
+parser module emitting the same shared JSON contract, and a new output format is a new
+renderer module — neither touches the rest of the pipeline. That's the seam PLAS,
+Assembler, and Pascal parsers will land on next (see [Components](#components)), and
+in principle any source language or output target (PDF, man pages, a docs site, …)
+fits the same seam.
 
 ## Quick look
 
@@ -72,8 +79,9 @@ comments) — see [Supported languages](#supported-languages) for what's next.
 
 | | ZDoc | Doxygen | JavaDoc |
 |---|---|---|---|
-| PL/X, PLAS, mainframe Assembler | ✅ | ❌ | ❌ |
-| C, C++, Java, Pascal | ✅ | C/C++ (+ more via config) | Java only |
+| PL/X | ✅ | ❌ | ❌ |
+| C, C++, Java | ✅ | C/C++ (+ more via config) | Java only |
+| New source language = new parser module, no core changes | ✅ | ❌ (fork/patch) | ❌ (Java only) |
 | Offline by default, no network calls | ✅ | ✅ | ✅ |
 | AI-assisted design diagrams | ✅ `--mode ai`, Mermaid | ❌ | ❌ |
 | Output formats | Markdown + self-contained HTML | HTML, LaTeX, man, … | HTML |
@@ -101,12 +109,15 @@ comments) — see [Supported languages](#supported-languages) for what's next.
 | Language   | File extensions               |
 |------------|-------------------------------|
 | PL/X       | `.plx`, `.pls`                |
-| PLAS       | `.plas`                       |
 | C          | `.c`, `.h`                    |
 | C++        | `.cpp`, `.cxx`, `.cc`, `.hpp`, `.c++` |
 | Java       | `.java`                       |
-| Assembler  | `.asm`, `.s`, `.mac`          |
-| Pascal     | `.pas`, `.pp`                 |
+
+PLAS, Assembler, and Pascal are **not** supported yet — those parser modules are
+scaffolded but not implemented (see [Components](#components)). Nothing about the
+architecture is specific to the four languages above; adding a language means writing
+one parser module against the shared JSON contract in
+[`parser/README.md`](parser/README.md).
 
 ## Operating modes
 
@@ -165,7 +176,7 @@ recursive: true
 languages:
   - plx
   - c
-  - assembler
+  - java
 exclude:
   - "**/*.test.c"
   - "**/test/**"
@@ -182,11 +193,11 @@ final Markdown or HTML documentation.
 ```
 zdoc
 ├── parser/
-│   ├── plx_parser       — PL/X and PLAS parser
+│   ├── plx_parser       — PL/X parser (PLAS planned)
 │   ├── c_parser         — C and C++ parser
 │   ├── java_parser      — Java parser
-│   ├── asm_parser       — Assembler parser
-│   └── pascal_parser    — Pascal parser
+│   ├── asm_parser       — Assembler parser (scaffolded, not implemented)
+│   └── pascal_parser    — Pascal parser (scaffolded, not implemented)
 ├── extractor/
 │   └── doc_extractor    — Comment block and tag extractor (shared)
 ├── ai-bob/              — Bob CLI invocation and response parsing
@@ -223,7 +234,7 @@ make -C parser/c_parser
 
 | Component                | Path                       | Status                                        |
 |---------------------------|----------------------------|------------------------------------------------|
-| PL/X + PLAS parser        | `parser/plx_parser`        | In progress                                     |
+| PL/X parser (PLAS planned)| `parser/plx_parser`        | In progress                                     |
 | C / C++ parser            | `parser/c_parser`          | In progress                                     |
 | Java parser               | `parser/java_parser`       | In progress                                     |
 | Assembler parser          | `parser/asm_parser`        | Planned                                         |

@@ -2,9 +2,16 @@
 
 ## Overview
 
-ZDoc is a documentation generation tool designed to extract and present structured documentation from source files written in **PL/X**, **PLAS**, **C**, **C++**, **Java**, **Assembler**, and **Pascal**. It operates similarly to Doxygen or JavaDoc, but is purpose-built for mainframe and mixed-language codebases.
+ZDoc is a documentation generation tool designed to extract and present structured documentation from source files written in **PL/X**, **C**, **C++**, and **Java**. It operates similarly to Doxygen or JavaDoc, but is purpose-built for mainframe and mixed-language codebases.
 
 Each source module (file) is rendered as an expandable node in the output. Where documentation comments are present, they are surfaced per function, macro, entry point, or declaration. ZDoc supports two operating modes: **Offline** and **AI Assisted**.
+
+The pipeline (see [Architecture](#architecture)) is deliberately split so that a new
+source language is a new parser module against the shared JSON contract, and a new
+output format is a new renderer module — neither requires changes elsewhere in the
+pipeline. PLAS, Assembler, and Pascal parsers are scaffolded on this seam but not yet
+implemented (see [Roadmap](#roadmap)); the same seam applies to any other source
+language or output target.
 
 ---
 
@@ -13,12 +20,12 @@ Each source module (file) is rendered as an expandable node in the output. Where
 | Language   | File Extensions               |
 |------------|-------------------------------|
 | PL/X       | `.plx`, `.pls`                |
-| PLAS       | `.plas`                       |
 | C          | `.c`, `.h`                    |
 | C++        | `.cpp`, `.cxx`, `.cc`, `.hpp` |
 | Java       | `.java`                       |
-| Assembler  | `.asm`, `.s`, `.mac`          |
-| Pascal     | `.pas`, `.pp`                 |
+
+PLAS (`.plas`), Assembler (`.asm`, `.s`, `.mac`), and Pascal (`.pas`, `.pp`) are not
+supported yet — see [Roadmap](#roadmap).
 
 ---
 
@@ -163,7 +170,7 @@ recursive: true
 languages:
   - plx
   - c
-  - assembler
+  - java
 exclude:
   - "**/*.test.c"
   - "**/test/**"
@@ -207,11 +214,11 @@ Bob generates **brief (basic) block diagrams** — one diagram box per logical s
 ```
 zdoc
 ├── parser/
-│   ├── plx_parser       — PL/X and PLAS parser
+│   ├── plx_parser       — PL/X parser (PLAS planned)
 │   ├── c_parser         — C and C++ parser
 │   ├── java_parser      — Java parser
-│   ├── asm_parser       — Assembler parser
-│   └── pascal_parser    — Pascal parser
+│   ├── asm_parser       — Assembler parser (scaffolded, not implemented)
+│   └── pascal_parser    — Pascal parser (scaffolded, not implemented)
 ├── extractor/
 │   └── doc_extractor    — Comment block and tag extractor (shared)
 ├── ai/
@@ -265,13 +272,16 @@ flowchart TD
 
 - AI assisted mode requires network access to the Bob service and a valid authentication token.
 - Mermaid diagram rendering in HTML requires JavaScript. For fully static offline HTML without JS, diagrams are omitted and a note is inserted instead.
-- Macro-heavy Assembler or PL/X files may require pre-expansion before accurate parsing; ZDoc processes the raw source by default.
+- Macro-heavy PL/X (`.plxmac`) files may require pre-expansion before accurate parsing; ZDoc processes the raw source by default.
 - Nested include files are not followed automatically; use `--recursive` on the include directories separately.
 
 ---
 
 ## Roadmap
 
+- [ ] PLAS language support
+- [ ] Assembler language support
+- [ ] Pascal language support
 - [ ] Cross-module call graph generation
 - [ ] Deprecated symbols index page
 - [ ] Side-by-side source view in HTML output
@@ -279,6 +289,7 @@ flowchart TD
 - [ ] COBOL language support
 - [ ] VS Code extension for inline ZDoc preview
 - [ ] Bob CLI streaming support for large functions
+- [ ] Additional output-format renderers (e.g. PDF, man pages)
 
 ---
 
